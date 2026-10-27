@@ -1,0 +1,72 @@
+# Miscellaneous & OS files
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# Workspace scratch / plan files
+/a.txt
+/git_setup_plan.md
+
+# Distribution & Installer Artifacts
+/dist/
+*.dmg
+*.zip
+*.exe
+*.msix
+*.pkg
+*.app/
+
+# IntelliJ / Android Studio / VS Code
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Flutter / Dart / Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+.widget_preview/
+
+# Symbolication & Obfuscation related
+app.*.symbols
+app.*.map.json
+
+# macOS / Xcode specific
+macos/Flutter/ephemeral/
+macos/Pods/
+macos/.symlinks/
+macos/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+macos/Runner.xcworkspace/xcuserdata/
+**/dgph
+**/xcuserdata/
+
+# Windows / Visual Studio specific
+windows/flutter/ephemeral/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+x64/
+x86/
+*.[Cc]ache
+!*.[Cc]ache/
