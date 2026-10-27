@@ -41,6 +41,7 @@ jobs:
       - name: Package macOS .zip and .dmg
         run: |
           APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
+          codesign --force --deep --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
           mkdir -p dist dmg_staging
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/SnapCraft-macOS.zip
           cp -R "$APP_PATH" dmg_staging/

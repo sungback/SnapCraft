@@ -35,6 +35,7 @@
 ### Phase 4. 배포 패키징 및 Git 구성
 - [x] macOS Release 빌드 및 코드 서명된 설치 파일(`dist/SnapCraft-macOS.dmg`, `dist/SnapCraft-macOS.zip`) 생성
 - [x] `.gitignore`, `.gitattributes`, `README.md`, `AGENTS.md`, `TASKS.md` 구성 및 Git 저장소(`main`) 초기화
+- [x] GitHub Actions (`.github/workflows/build.yml`) macOS/Windows 자동 빌드 설정 및 Windows CMake(`jni` 및 MSVC `/WX` 이슈) 방어 코드 적용
 
 ---
 
