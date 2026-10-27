@@ -8,10 +8,12 @@ import 'models/capture_item.dart';
 import 'services/capture_service.dart';
 import 'services/export_service.dart';
 import 'services/hotkey_service.dart';
+import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
 import 'widgets/history_sidebar.dart';
 import 'widgets/shortcut_settings_dialog.dart';
 import 'widgets/top_toolbar.dart';
+import 'widgets/update_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -76,6 +78,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   bool _isCapturing = false;
   bool _hideWindowDuringCapture = true;
+  String _appVersion = UpdateService.defaultVersion;
+  ReleaseInfo? _latestReleaseInfo;
   String _statusMessage = '준비됨 · 상단 버튼 또는 글로벌 단축키로 화면을 캡쳐하세요.';
 
   @override
@@ -102,6 +106,46 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     await HotkeyService.instance.initialize((mode) {
       _triggerCapture(mode);
     });
+
+    final ver = await UpdateService.instance.getCurrentVersion();
+    if (mounted) {
+      setState(() {
+        _appVersion = ver;
+      });
+    }
+
+    // 앱 시작 후 백그라운드에서 최신 릴리즈 자동 확인 (단위 테스트 환경 제외)
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkUpdateSilently();
+      });
+    }
+  }
+
+  Future<void> _checkUpdateSilently() async {
+    final info = await UpdateService.instance.checkForUpdate();
+    if (!mounted || info == null) return;
+
+    setState(() {
+      _latestReleaseInfo = info;
+    });
+
+    if (info.hasUpdate) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '새 버전(v${info.latestVersion})이 출시되었습니다! 현재 버전: v${info.currentVersion}',
+          ),
+          duration: const Duration(seconds: 6),
+          behavior: SnackBarBehavior.floating,
+          width: 460,
+          action: SnackBarAction(
+            label: '업데이트',
+            onPressed: _openUpdateDialog,
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _triggerCapture(CaptureMode mode) async {
@@ -261,6 +305,19 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     );
   }
 
+  Future<void> _openUpdateDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => UpdateDialog(
+        initialReleaseInfo: _latestReleaseInfo,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _latestReleaseInfo = UpdateService.instance.latestReleaseInfo;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final current = _selectedItem;
@@ -311,6 +368,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 onCopyClipboard: _copyToClipboard,
                 onSaveFile: _saveToFile,
                 onOpenShortcutSettings: _openShortcutSettings,
+                onOpenUpdateDialog: _openUpdateDialog,
+                availableUpdateVersion:
+                    (_latestReleaseInfo?.hasUpdate ?? false)
+                    ? _latestReleaseInfo?.latestVersion
+                    : null,
               ),
               Expanded(
                 child: Row(
@@ -562,6 +624,15 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                   ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'v$_appVersion',
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.white38,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],

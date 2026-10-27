@@ -29,11 +29,13 @@
   * `capture_service.dart`: 창 숨김/복원, 임시 파일 생성, `screenCapturer.capture()` 호출 및 캡쳐 직후 자동 클립보드 복사
   * `export_service.dart`: `paintCaptureScene()`(실시간 캔버스와 PNG 내보내기 공용 렌더링 로직), `renderAnnotatedPng()`, 멀티 포맷 클립보드 복사, PNG 파일 저장
   * `hotkey_service.dart`: 3가지 캡쳐 모드의 글로벌 단축키 등록/수정/초기화
+  * `update_service.dart`: GitHub Releases(`sungback/SnapCraft`) 최신 버전 조회, 원클릭 패키지 다운로드 및 macOS(`.app` 교체)/Windows(`xcopy` 교체) 자동 설치·재시작
 * `lib/widgets/`
-  * `top_toolbar.dart`: 상단 2단 툴바 (캡쳐 모드 버튼, 단축키 설정, 마크업 도구, 색상/굵기, Undo/Redo, 복사/저장)
+  * `top_toolbar.dart`: 상단 2단 툴바 (캡쳐 모드 버튼, 단축키 설정, 업데이트 알림 배지/버튼, 마크업 도구, 색상/굵기, Undo/Redo, 복사/저장)
   * `annotation_canvas.dart`: 원본 비율 유지 뷰포트 계산 및 마우스 드래그/탭 이벤트를 원본 픽셀 좌표로 변환하여 드로잉
   * `history_sidebar.dart`: 좌측 최근 캡쳐 썸네일 목록 및 전환/삭제 UI
   * `shortcut_settings_dialog.dart`: 글로벌 단축키 변경 다이얼로그
+  * `update_dialog.dart`: 최신 버전 확인, 릴리즈 노트 표시, 원클릭 다운로드 및 자동 재시작 모달 다이얼로그
 
 ---
 

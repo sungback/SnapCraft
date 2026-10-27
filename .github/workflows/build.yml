@@ -1,4 +1,4 @@
-name: Build macOS & Windows Release
+name: Build & Auto-Release (macOS & Windows)
 
 on:
   push:
@@ -25,6 +25,16 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          RAW_VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
+          APP_VER="${RAW_VER%%+*}"
+          BUILD_NUM="${RAW_VER#*+}"
+          if [ "$BUILD_NUM" = "$RAW_VER" ]; then BUILD_NUM="1"; fi
+          echo "app_version=$APP_VER" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUM" >> "$GITHUB_OUTPUT"
+
       - name: Enable macOS desktop & install dependencies
         run: |
           flutter config --enable-macos-desktop
@@ -36,7 +46,11 @@ jobs:
           flutter test
 
       - name: Build macOS Release
-        run: flutter build macos --release
+        run: |
+          flutter build macos --release \
+            --build-name=${{ steps.version.outputs.app_version }} \
+            --build-number=${{ steps.version.outputs.build_number }} \
+            --dart-define=APP_VERSION=${{ steps.version.outputs.app_version }}
 
       - name: Package macOS .zip and .dmg
         run: |
@@ -56,14 +70,6 @@ jobs:
             dist/SnapCraft-macOS.dmg
             dist/SnapCraft-macOS.zip
 
-      - name: Publish to GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/SnapCraft-macOS.dmg
-            dist/SnapCraft-macOS.zip
-
   build-windows:
     name: Build Windows (.zip)
     runs-on: windows-latest
@@ -77,13 +83,25 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Extract version from pubspec.yaml
+        id: version
+        shell: pwsh
+        run: |
+          $line = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([^\s#]+)').Matches.Groups[1].Value.Trim()
+          $parts = $line -split '\+'
+          $appVer = $parts[0]
+          $buildNum = if ($parts.Length -gt 1) { $parts[1] } else { "1" }
+          "app_version=$appVer" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build_number=$buildNum" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Enable Windows desktop & install dependencies
         run: |
           flutter config --enable-windows-desktop
           flutter pub get
 
       - name: Build Windows Release
-        run: flutter build windows --release
+        run: |
+          flutter build windows --release --build-name=${{ steps.version.outputs.app_version }} --build-number=${{ steps.version.outputs.build_number }} --dart-define=APP_VERSION=${{ steps.version.outputs.app_version }}
 
       - name: Package Windows Release (.zip)
         shell: pwsh
@@ -97,8 +115,51 @@ jobs:
           name: SnapCraft-Windows-x64
           path: dist/SnapCraft-Windows-x64.zip
 
-      - name: Publish to GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+  publish-release:
+    name: Auto-Publish GitHub Release
+    needs: [build-macos, build-windows]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check target version & existing release
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RAW_VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
+          APP_VER="${RAW_VER%%+*}"
+          TAG_NAME="v$APP_VER"
+          echo "app_version=$APP_VER" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          elif gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists. Skipping release creation."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version $TAG_NAME detected in pubspec.yaml! Will create release."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download built artifacts
+        if: steps.check_release.outputs.should_release == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: Create GitHub Release with macOS & Windows installers
+        if: steps.check_release.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/SnapCraft-Windows-x64.zip
+          tag_name: ${{ steps.check_release.outputs.tag_name }}
+          name: SnapCraft ${{ steps.check_release.outputs.tag_name }}
+          generate_release_notes: true
+          files: |
+            release_assets/SnapCraft-macOS.dmg
+            release_assets/SnapCraft-macOS.zip
+            release_assets/SnapCraft-Windows-x64.zip

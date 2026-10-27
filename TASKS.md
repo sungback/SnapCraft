@@ -32,10 +32,12 @@
 - [x] `MainFlutterWindow.swift`에 멀티 포맷 클립보드 채널(`snap_craft/clipboard`) 구현
   - 일반 앱/Claude Code에는 `PNG`/`TIFF` 이미지로, `agy`/Ghostty 등 터미널에는 파일 경로(`fileURL`/`string`)로 동시 붙여넣기 지원
 
-### Phase 4. 배포 패키징 및 Git 구성
+### Phase 4. 배포 패키징, Git 및 자동 업데이트 구성
 - [x] macOS Release 빌드 및 코드 서명된 설치 파일(`dist/SnapCraft-macOS.dmg`, `dist/SnapCraft-macOS.zip`) 생성
 - [x] `.gitignore`, `.gitattributes`, `README.md`, `AGENTS.md`, `TASKS.md` 구성 및 Git 저장소(`main`) 초기화
 - [x] GitHub Actions (`.github/workflows/build.yml`) macOS/Windows 자동 빌드 설정 및 Windows CMake(`jni` 및 MSVC `/WX` 이슈) 방어 코드 적용
+- [x] `pubspec.yaml` 버전 상승 시 GitHub Actions에서 자동으로 `v<version>` GitHub Release 생성 및 macOS/Windows 설치 파일 업로드 파이프라인(`publish-release`) 구축
+- [x] GitHub Releases 연동 인앱 자동 업데이트(`UpdateService` & `UpdateDialog`) 구현 (앱 시작 시 자동 확인, 상단 업데이트 배지, 원클릭 다운로드 후 자동 교체 설치 및 재실행)
 
 ---
 

@@ -21,6 +21,8 @@ class TopToolbar extends StatelessWidget {
   final VoidCallback onCopyClipboard;
   final VoidCallback onSaveFile;
   final VoidCallback onOpenShortcutSettings;
+  final VoidCallback onOpenUpdateDialog;
+  final String? availableUpdateVersion;
 
   const TopToolbar({
     super.key,
@@ -41,6 +43,8 @@ class TopToolbar extends StatelessWidget {
     required this.onCopyClipboard,
     required this.onSaveFile,
     required this.onOpenShortcutSettings,
+    required this.onOpenUpdateDialog,
+    this.availableUpdateVersion,
   });
 
   static const List<Color> paletteColors = [
@@ -114,6 +118,54 @@ class TopToolbar extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 6),
+              if (availableUpdateVersion != null)
+                FilledButton.tonalIcon(
+                  onPressed: onOpenUpdateDialog,
+                  icon: const Icon(
+                    Icons.system_update_alt_rounded,
+                    size: 16,
+                    color: Color(0xFF34D399),
+                  ),
+                  label: Text(
+                    'v$availableUpdateVersion 업데이트',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6EE7B7),
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(
+                      0xFF10B981,
+                    ).withValues(alpha: 0.16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Tooltip(
+                  message: '버전 및 업데이트 확인',
+                  child: IconButton(
+                    onPressed: onOpenUpdateDialog,
+                    icon: const Icon(Icons.system_update_alt_rounded, size: 20),
+                    color: Colors.white70,
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF282B36),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
               const Spacer(),
               // 우측 내보내기 버튼들
               FilledButton.tonalIcon(
