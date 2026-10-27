@@ -92,8 +92,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
         borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: Color(0xFF323646)),
       ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
+      child: SizedBox(
+        width: 520,
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -221,7 +221,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         if (hasUpdate) ...[
                           const SizedBox(height: 8),
                           Text(
-                            info.releaseNotes,
+                            info.releaseNotes.replaceAll('**', ''),
                             style: const TextStyle(
                               fontSize: 12.5,
                               color: Colors.white70,
@@ -258,44 +258,82 @@ class _UpdateDialogState extends State<UpdateDialog> {
               ],
               const SizedBox(height: 20),
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   if (info != null && !_isInstalling)
                     TextButton.icon(
                       onPressed: () =>
                           UpdateService.instance.openUrl(info.htmlUrl),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                      label: const Text('GitHub 릴리즈 보기'),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 15),
+                      label: const Text(
+                        'GitHub 릴리즈 보기',
+                        style: TextStyle(fontSize: 12.5),
+                      ),
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white70,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
                       ),
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  Flexible(
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (!_isInstalling && !_isChecking)
+                          OutlinedButton.icon(
+                            onPressed: _checkUpdate,
+                            icon: const Icon(Icons.refresh_rounded, size: 16),
+                            label: const Text(
+                              '다시 확인',
+                              style: TextStyle(fontSize: 12.5),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Color(0xFF383C4C)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        if (hasUpdate && !_isInstalling)
+                          FilledButton.icon(
+                            onPressed: _startUpdate,
+                            icon: const Icon(
+                              Icons.downloading_rounded,
+                              size: 17,
+                            ),
+                            label: const Text(
+                              '지금 업데이트 및 재시작',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                  const Spacer(),
-                  if (!_isInstalling && !_isChecking)
-                    OutlinedButton.icon(
-                      onPressed: _checkUpdate,
-                      icon: const Icon(Icons.refresh_rounded, size: 17),
-                      label: const Text('다시 확인'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Color(0xFF383C4C)),
-                      ),
-                    ),
-                  if (hasUpdate && !_isInstalling) ...[
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: _startUpdate,
-                      icon: const Icon(
-                        Icons.downloading_rounded,
-                        size: 18,
-                      ),
-                      label: const Text('지금 업데이트 및 재시작'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
+                  ),
                 ],
               ),
             ],
