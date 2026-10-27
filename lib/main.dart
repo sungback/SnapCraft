@@ -20,15 +20,24 @@ Future<void> main() async {
 
   await windowManager.ensureInitialized();
 
-  const windowOptions = WindowOptions(
-    size: Size(1180, 780),
-    minimumSize: Size(880, 580),
+  final windowOptions = WindowOptions(
+    size: const Size(1180, 780),
+    minimumSize: const Size(880, 580),
     center: true,
-    backgroundColor: Color(0xFF14161C),
+    // Windows에서 backgroundColor를 지정하면 window_manager가
+    // SetWindowCompositionAttribute(ACCENT_ENABLE_GRADIENT)를 호출하여
+    // DWM 기본 타이틀바의 최소화/최대화/닫기 버튼을 덮어쓰는 문제가 발생하므로 macOS에서만 지정
+    backgroundColor: Platform.isMacOS ? const Color(0xFF14161C) : null,
+    titleBarStyle: TitleBarStyle.normal,
+    windowButtonVisibility: true,
     title: 'SnapCraft - 화면 캡쳐 & 마크업',
   );
 
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.setResizable(true);
+    await windowManager.setMinimizable(true);
+    await windowManager.setMaximizable(true);
+    await windowManager.setClosable(true);
     await windowManager.show();
     await windowManager.focus();
   });

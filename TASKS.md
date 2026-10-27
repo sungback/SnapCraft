@@ -38,6 +38,7 @@
 - [x] GitHub Actions (`.github/workflows/build.yml`) macOS/Windows 자동 빌드 설정 및 Windows CMake(`jni` 및 MSVC `/WX` 이슈) 방어 코드 적용
 - [x] `pubspec.yaml` 버전 상승 시 GitHub Actions에서 자동으로 `v<version>` GitHub Release 생성 및 macOS/Windows 설치 파일 업로드 파이프라인(`publish-release`) 구축
 - [x] GitHub Releases 연동 인앱 자동 업데이트(`UpdateService` & `UpdateDialog`) 구현 (앱 시작 시 자동 확인, 상단 업데이트 배지, 원클릭 다운로드 후 자동 교체 설치 및 재실행)
+- [x] Windows 타이틀바 최소화/최대화 버튼 누락 수정 (`window_manager`의 `SetWindowCompositionAttribute` 충돌 방지 및 `WS_MINIMIZEBOX`/`WS_MAXIMIZEBOX`, 다크 타이틀바 명시 적용) 및 `v1.0.1` 릴리즈 배포
 
 ---
 
