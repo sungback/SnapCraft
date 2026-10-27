@@ -17,7 +17,6 @@ migrate_working_dir/
 
 # Workspace scratch / plan files
 /a.txt
-/git_setup_plan.md
 
 # Distribution & Installer Artifacts
 /dist/
