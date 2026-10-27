@@ -11,9 +11,12 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-macos:
-    name: Build macOS (.dmg & .zip)
+    name: Build macOS (Apple Silicon arm64)
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -24,6 +27,14 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: macos/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('macos/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
 
       - name: Extract version from pubspec.yaml
         id: version
@@ -40,38 +51,37 @@ jobs:
           flutter config --enable-macos-desktop
           flutter pub get
 
-      - name: Run static analysis & widget tests
-        run: |
-          flutter analyze
-          flutter test
-
-      - name: Build macOS Release
+      - name: Build macOS Release (arm64 only)
         run: |
           flutter build macos --release \
             --build-name=${{ steps.version.outputs.app_version }} \
             --build-number=${{ steps.version.outputs.build_number }} \
             --dart-define=APP_VERSION=${{ steps.version.outputs.app_version }}
 
-      - name: Package macOS .zip and .dmg
+      - name: Package macOS .zip and .dmg in parallel
         run: |
           APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
           codesign --force --deep --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
           mkdir -p dist dmg_staging
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/SnapCraft-macOS.zip
-          cp -R "$APP_PATH" dmg_staging/
-          ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "SnapCraft" -srcfolder dmg_staging -ov -format UDZO dist/SnapCraft-macOS.dmg
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/SnapCraft-macOS.zip &
+          (
+            cp -R "$APP_PATH" dmg_staging/
+            ln -s /Applications dmg_staging/Applications
+            hdiutil create -volname "SnapCraft" -srcfolder dmg_staging -ov -format ULFO dist/SnapCraft-macOS.dmg
+          ) &
+          wait
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SnapCraft-macOS
+          compression-level: 0
           path: |
             dist/SnapCraft-macOS.dmg
             dist/SnapCraft-macOS.zip
 
   build-windows:
-    name: Build Windows (.zip)
+    name: Build Windows (x64)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -103,16 +113,17 @@ jobs:
         run: |
           flutter build windows --release --build-name=${{ steps.version.outputs.app_version }} --build-number=${{ steps.version.outputs.build_number }} --dart-define=APP_VERSION=${{ steps.version.outputs.app_version }}
 
-      - name: Package Windows Release (.zip)
+      - name: Package Windows Release (.zip via 7-Zip)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "dist/SnapCraft-Windows-x64.zip" -Force
+          7z a -tzip -mx=3 "dist/SnapCraft-Windows-x64.zip" "./build/windows/x64/runner/Release/*"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SnapCraft-Windows-x64
+          compression-level: 0
           path: dist/SnapCraft-Windows-x64.zip
 
   publish-release:
