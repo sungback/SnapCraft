@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
@@ -10,6 +10,10 @@ import 'export_service.dart';
 class CaptureService {
   CaptureService._();
   static final CaptureService instance = CaptureService._();
+
+  static const MethodChannel _windowsCaptureChannel = MethodChannel(
+    'snap_craft/windows_capture',
+  );
 
   bool _isCapturing = false;
   bool get isCapturing => _isCapturing;
@@ -50,16 +54,28 @@ class CaptureService {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final filePath = '${capturesDir.path}/snap_$timestamp.png';
 
-      final capturedData = await screenCapturer.capture(
-        mode: mode,
-        imagePath: filePath,
-        copyToClipboard: false,
-        silent: true,
-      );
+      Uint8List? imageBytes;
+      if (Platform.isWindows && mode == CaptureMode.window) {
+        // Windows에서 기본 ms-screenclip 창 모드는 다른 창에 가려진 영역이 그대로 찍히고
+        // 7px 투명 테두리가 포함되는 문제가 있으므로 네이티브 Win32 창 선택/전면화 캡쳐 채널 사용
+        final ok = await _windowsCaptureChannel.invokeMethod<bool>(
+          'captureWindow',
+          {'path': filePath},
+        );
+        if (ok != true) {
+          return null;
+        }
+      } else {
+        final capturedData = await screenCapturer.capture(
+          mode: mode,
+          imagePath: filePath,
+          copyToClipboard: false,
+          silent: true,
+        );
+        imageBytes = capturedData?.imageBytes;
+      }
 
       final file = File(filePath);
-      Uint8List? imageBytes = capturedData?.imageBytes;
-
       if (imageBytes == null && await file.exists()) {
         final length = await file.length();
         if (length > 0) {
