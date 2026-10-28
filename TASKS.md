@@ -41,6 +41,7 @@
 - [x] Windows 타이틀바 최소화/최대화 버튼 누락 수정 (`window_manager`의 `SetWindowCompositionAttribute` 충돌 방지 및 `WS_MINIMIZEBOX`/`WS_MAXIMIZEBOX`, 다크 타이틀바 명시 적용) 및 `v1.0.1` 릴리즈 배포
 - [x] GitHub Actions 빌드 속도 최적화 (macOS Apple Silicon `arm64` 전용 빌드 전환, CocoaPods 캐싱, `.zip`/`.dmg` 병렬 패키징 및 `ULFO` 고속 압축, Windows `7z` 멀티스레드 압축, 아티팩트 중복 압축 해제)
 - [x] `UpdateDialog` 하단 액션 버튼 레이아웃 오버플로우 수정 (`SizedBox(width: 520)`, `Flexible` + `Wrap` 적용 및 버튼 여백/모서리 스타일 개선) 및 `v1.0.2` 릴리즈 배포
+- [x] macOS 인앱 자동 업데이트 시 화면 기록 권한(TCC) 팝업 재발 방지 (`UpdateService._resignMacBundleForTcc`를 통해 압축 해제 직후 로컬 키체인의 `Developer ID Application` 인증서로 자동 재서명 후 교체) 및 `v1.0.3` 릴리즈 배포
 
 ---
 

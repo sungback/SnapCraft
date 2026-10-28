@@ -340,6 +340,10 @@ class UpdateService {
     // Quarantine 속성 제거
     await Process.run('/usr/bin/xattr', ['-cr', newAppBundle.path]);
 
+    // macOS TCC(화면 기록 권한) 유지를 위해 로컬 키체인의 개발자 인증서가 있으면 자동 서명 적용
+    onProgress(0.91, '화면 기록 권한(TCC) 유지를 위해 인증서 서명 확인 중...');
+    await _resignMacBundleForTcc(newAppBundle.path, updateDir);
+
     // 현재 실행 중인 .app 경로 계산 (.../snap_craft.app/Contents/MacOS/snap_craft)
     final currentExe = File(Platform.resolvedExecutable);
     final currentAppDir = currentExe.parent.parent.parent;
@@ -378,6 +382,69 @@ fi
     );
 
     exit(0);
+  }
+
+  /// macOS 업데이트 시 Ad-hoc 서명으로 바뀌어 TCC(화면 기록 권한)가 풀리는 문제를 방지하기 위해
+  /// 로컬 키체인에 등록된 Developer ID Application 또는 Apple Development 인증서로 재서명합니다.
+  Future<void> _resignMacBundleForTcc(
+    String appBundlePath,
+    Directory updateDir,
+  ) async {
+    try {
+      final findRes = await Process.run('/usr/bin/security', [
+        'find-identity',
+        '-v',
+        '-p',
+        'codesigning',
+      ]);
+      if (findRes.exitCode != 0) return;
+
+      final output = findRes.stdout.toString();
+      String? certName;
+
+      final devIdMatch = RegExp(
+        r'"(Developer ID Application:[^"]+)"',
+      ).firstMatch(output);
+      if (devIdMatch != null) {
+        certName = devIdMatch.group(1);
+      } else {
+        final appleDevMatch = RegExp(
+          r'"(Apple Development:[^"]+)"',
+        ).firstMatch(output);
+        if (appleDevMatch != null) {
+          certName = appleDevMatch.group(1);
+        }
+      }
+
+      if (certName == null || certName.isEmpty) return;
+
+      final entitlementsFile = File('${updateDir.path}/Release.entitlements');
+      await entitlementsFile.writeAsString('''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>
+''');
+
+      await Process.run('/usr/bin/codesign', [
+        '--force',
+        '--deep',
+        '--options',
+        'runtime',
+        '--entitlements',
+        entitlementsFile.path,
+        '--sign',
+        certName,
+        appBundlePath,
+      ]);
+    } catch (_) {}
   }
 
   Future<void> _installOnWindows({
