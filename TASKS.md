@@ -43,6 +43,7 @@
 - [x] `UpdateDialog` 하단 액션 버튼 레이아웃 오버플로우 수정 (`SizedBox(width: 520)`, `Flexible` + `Wrap` 적용 및 버튼 여백/모서리 스타일 개선) 및 `v1.0.2` 릴리즈 배포
 - [x] macOS 인앱 자동 업데이트 시 화면 기록 권한(TCC) 팝업 재발 방지 (`UpdateService._resignMacBundleForTcc`를 통해 압축 해제 직후 로컬 키체인의 `Developer ID Application` 인증서로 자동 재서명 후 교체) 및 `v1.0.3` 릴리즈 배포
 - [x] Windows 창 캡쳐(`CaptureMode.window`) 시 다른 창에 가려진 영역이 함께 찍히거나 테두리 여백이 포함되는 문제 해결 (`windows/runner/flutter_window.cpp`에 네이티브 Win32 창 하이라이트 선택기, 선택 창 자동 전면화 및 `DWMWA_EXTENDED_FRAME_BOUNDS` 정밀 크롭 구현) 및 `v1.0.4` 릴리즈 배포
+- [x] SnapCraft 전용 커스텀 앱 아이콘(화면 캡쳐 뷰파인더 + 마크업 펜슬 & 곡선 디자인) 제작 및 macOS(`AppIcon.appiconset` 전 해상도) / Windows(`app_icon.ico` 멀티 해상도) 적용, `v1.0.5` 릴리즈 배포
 
 ---
 
