@@ -14,7 +14,7 @@ void main() {
   testWidgets('capture errors release both guards and allow retry', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1180, 780));
+    await tester.binding.setSurfaceSize(const Size(880, 780));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var calls = 0;
     const channel = MethodChannel('window_manager');

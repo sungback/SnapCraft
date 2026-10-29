@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:screen_capturer/screen_capturer.dart';
+
 import '../models/annotation.dart';
 import '../services/hotkey_service.dart';
 
@@ -65,16 +66,16 @@ class TopToolbar extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFF1E2028),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFF2E323E), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFF2E323E), width: 1)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // 1단: 캡쳐 실행 버튼 그룹 + 단축키 설정 + 복사/저장 액션
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 8,
             children: [
               _buildCaptureButton(
                 icon: Icons.crop_free_rounded,
@@ -136,9 +137,8 @@ class TopToolbar extends StatelessWidget {
                     ),
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(
-                      0xFF10B981,
-                    ).withValues(alpha: 0.16),
+                    backgroundColor: const Color(0xFF10B981)
+                        .withValues(alpha: 0.16),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 10,
@@ -166,7 +166,7 @@ class TopToolbar extends StatelessWidget {
                     ),
                   ),
                 ),
-              const Spacer(),
+              const SizedBox(width: 12),
               // 우측 내보내기 버튼들
               FilledButton.tonalIcon(
                 onPressed: hasActiveCapture ? onCopyClipboard : null,
@@ -277,8 +277,9 @@ class TopToolbar extends StatelessWidget {
                   icon: const Icon(Icons.redo_rounded, size: 19),
                 ),
                 IconButton(
-                  onPressed:
-                      hasActiveCapture && canUndo ? onClearAnnotations : null,
+                  onPressed: hasActiveCapture && canUndo
+                      ? onClearAnnotations
+                      : null,
                   tooltip: '마크업 모두 지우기',
                   icon: const Icon(Icons.delete_sweep_outlined, size: 20),
                 ),
@@ -300,8 +301,9 @@ class TopToolbar extends StatelessWidget {
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor:
-            primary ? const Color(0xFF4F46E5) : const Color(0xFF282C37),
+        backgroundColor: primary
+            ? const Color(0xFF4F46E5)
+            : const Color(0xFF282C37),
         foregroundColor: Colors.white,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
