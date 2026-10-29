@@ -558,10 +558,12 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(icon, size: 22, color: const Color(0xFF60A5FA)),
-                const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 7,
