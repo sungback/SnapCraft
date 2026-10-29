@@ -24,8 +24,9 @@ class CaptureFiles {
       if (!await dir.exists()) continue;
       await for (final entry in dir.list(followLinks: false)) {
         if (entry is! File ||
-            entry.absolute.uri.normalizePath() == clipboardUri)
+            entry.absolute.uri.normalizePath() == clipboardUri) {
           continue;
+        }
         final base = entry.uri.pathSegments.last;
         if (!RegExp(r'^(snap|clipboard)_\d+\.png$').hasMatch(base)) continue;
         try {
