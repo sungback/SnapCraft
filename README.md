@@ -36,6 +36,10 @@
    * **[PNG 저장(`Cmd/Ctrl + S`)]**: 원하는 폴더에 원본 해상도 PNG 파일로 저장
    * 좌측 **최근 캡쳐 목록 사이드바**에서 여러 캡쳐본 간 전환 및 재편집 지원
 
+5. **인앱 자동 업데이트 (`UpdateService`)**
+   * 앱 시작 시 GitHub Releases(`sungback/SnapCraft`)의 최신 버전을 확인하고, 새 버전이 있으면 상단에 업데이트 배지 표시
+   * 원클릭으로 다운로드 → 설치 파일 교체 → 앱 재실행 (macOS `.app` 교체 / Windows `xcopy` 교체)
+
 ---
 
 ## 프로젝트 구조
@@ -49,12 +53,14 @@ lib/
 ├── services/
 │   ├── capture_service.dart           # 창 자동 숨김/복원 및 OS 네이티브 캡쳐 연동
 │   ├── export_service.dart            # 마크업 캔버스 렌더링, 멀티 포맷 클립보드, PNG 저장
-│   └── hotkey_service.dart            # 글로벌 단축키 등록 및 설정 저장
+│   ├── hotkey_service.dart            # 글로벌 단축키 등록 및 설정 저장
+│   └── update_service.dart            # GitHub Releases 기반 버전 확인 및 자동 설치
 └── widgets/
     ├── annotation_canvas.dart         # 원본 해상도 좌표계 기반 인터랙티브 드로잉 캔버스
     ├── history_sidebar.dart           # 최근 캡쳐 썸네일 히스토리 사이드바
     ├── shortcut_settings_dialog.dart  # 글로벌 단축키 변경 모달
-    └── top_toolbar.dart               # 캡쳐 모드 및 마크업 도구 상단 툴바
+    ├── top_toolbar.dart               # 캡쳐 모드 및 마크업 도구 상단 툴바
+    └── update_dialog.dart             # 업데이트 확인/진행 다이얼로그
 ```
 
 ---

@@ -1,6 +1,6 @@
 # AGENTS.md — SnapCraft 프로젝트 에이전트 가이드
 
-이 문서는 AI 코딩 에이전트(Antigravity, Claude Code 등)가 **SnapCraft** 프로젝트를 이해하고 수정·빌드·배포할 때 반드시 준수해야 할 아키텍처 규칙과 플랫폼별 주의사항을 정의합니다.
+이 문서는 AI 코딩 에이전트(Claude Code, Codex, Antigravity 등)가 **SnapCraft** 프로젝트를 이해하고 수정·빌드·배포할 때 반드시 준수해야 할 아키텍처 규칙과 플랫폼별 주의사항을 정의합니다.
 
 ---
 
@@ -9,33 +9,18 @@
 * **프로젝트명**: SnapCraft (`snap_craft`, Bundle ID: `com.example.snapCraft`)
 * **목적**: macOS 및 Windows를 지원하는 크로스플랫폼 화면 캡쳐 및 마크업(주석) 편집 데스크톱 앱
 * **프레임워크**: Flutter Desktop (Dart 3.x / Flutter 3.47+)
-* **핵심 패키지**:
-  * `screen_capturer`: OS 네이티브 영역/전체화면/창 캡쳐
-  * `window_manager`: 캡쳐 전 앱 창 자동 숨김(`hide`) 및 완료 후 복원(`show`/`focus`)
-  * `hotkey_manager`: 시스템 글로벌 단축키 등록 및 변경(`HotKeyRecorder`)
-  * `pasteboard` + 네이티브 채널(`snap_craft/clipboard`): 클립보드 이미지 및 파일 경로 복사
-  * `file_picker`: PNG 파일 다른 이름으로 저장
-  * `shared_preferences`: 사용자 정의 단축키 설정 영구 저장
+* **패키지/버전**: `pubspec.yaml` 참조. 클립보드 이미지·파일 경로 복사는 `pasteboard`와 네이티브 채널(`snap_craft/clipboard`)을 함께 사용합니다.
 
 ---
 
 ## 2. 디렉터리 및 코드 아키텍처
 
-* `lib/main.dart`: 앱 초기화(`windowManager`), 단축키 바인딩(`CallbackShortcuts`), 메인 화면(`SnapCraftHomeScreen`) 상태 관리
-* `lib/models/`
-  * `annotation.dart`: `AnnotationTool` 열거형(`pen`, `highlighter`, `rectangle`, `arrow`, `text`, `mosaic`) 및 `AnnotationItem` 모델. **모든 좌표(`points`)는 화면 위젯 크기가 아닌 원본 이미지 픽셀 좌표계(`0..width`, `0..height`)로 저장**됩니다.
-  * `capture_item.dart`: 캡쳐된 원본 바이트, 디코딩된 `ui.Image`, 마크업 리스트(`annotations`) 및 `redoStack` 관리
-* `lib/services/`
-  * `capture_service.dart`: 창 숨김/복원, 임시 파일 생성, `screenCapturer.capture()` 호출 및 캡쳐 직후 자동 클립보드 복사
-  * `export_service.dart`: `paintCaptureScene()`(실시간 캔버스와 PNG 내보내기 공용 렌더링 로직), `renderAnnotatedPng()`, 멀티 포맷 클립보드 복사, PNG 파일 저장
-  * `hotkey_service.dart`: 3가지 캡쳐 모드의 글로벌 단축키 등록/수정/초기화
-  * `update_service.dart`: GitHub Releases(`sungback/SnapCraft`) 최신 버전 조회, 원클릭 패키지 다운로드 및 macOS(`.app` 교체)/Windows(`xcopy` 교체) 자동 설치·재시작
-* `lib/widgets/`
-  * `top_toolbar.dart`: 상단 2단 툴바 (캡쳐 모드 버튼, 단축키 설정, 업데이트 알림 배지/버튼, 마크업 도구, 색상/굵기, Undo/Redo, 복사/저장)
-  * `annotation_canvas.dart`: 원본 비율 유지 뷰포트 계산 및 마우스 드래그/탭 이벤트를 원본 픽셀 좌표로 변환하여 드로잉
-  * `history_sidebar.dart`: 좌측 최근 캡쳐 썸네일 목록 및 전환/삭제 UI
-  * `shortcut_settings_dialog.dart`: 글로벌 단축키 변경 다이얼로그
-  * `update_dialog.dart`: 최신 버전 확인, 릴리즈 노트 표시, 원클릭 다운로드 및 자동 재시작 모달 다이얼로그
+구조는 `lib/{models,services,widgets}`와 `lib/main.dart`를 직접 확인하세요. 코드만으로 드러나지 않는 불변 조건만 적습니다.
+
+* **좌표계**: `AnnotationItem.points`는 화면 위젯 크기가 아닌 **원본 이미지 픽셀 좌표(`0..width`, `0..height`)**로 저장합니다. `annotation_canvas.dart`가 화면 좌표를 변환합니다.
+* **렌더링 공용화**: `export_service.dart`의 `paintCaptureScene()`은 실시간 캔버스와 PNG 내보내기가 공유합니다. 렌더링을 바꾸면 양쪽에 모두 반영됩니다.
+* **자동 업데이트**: `update_service.dart`가 GitHub Releases(`sungback/SnapCraft`)를 조회하고, macOS는 `.app` 교체 전 `_resignMacBundleForTcc`로 재서명(아래 3번 규칙), Windows는 `xcopy`로 교체합니다.
+* **Windows 창 캡쳐**: `CaptureMode.window`는 `windows/runner/flutter_window.cpp`의 네이티브 Win32 창 선택기를 사용합니다.
 
 ---
 
@@ -53,7 +38,8 @@
    * Ad-hoc 서명(`-`)으로 빌드하면 바이너리 해시(`cdhash`)가 매번 바뀌어 macOS '화면 및 시스템 오디오 녹음' 권한 팝업이 반복해서 발생합니다.
    * macOS 빌드 후에는 반드시 아래 명령으로 키체인에 등록된 정식 개발자 인증서(`Developer ID Application` 또는 `Apple Development`) 서명을 적용하세요:
      ```bash
-     # 키체인에 등록된 서명 인증서 확인
+     # 인증서 이름은 문서에 고정하지 않습니다(public 저장소).
+     # 아래 명령 결과의 실제 이름을 <YOUR_NAME> (<TEAM_ID>) 자리에 사용하세요.
      security find-identity -v -p codesigning
 
      # Debug 빌드 서명
@@ -78,5 +64,6 @@
 * **정적 분석 및 테스트**: 코드 변경 후 항상 `flutter analyze`와 `flutter test`가 경고/오류 없이 통과하는지 확인합니다.
 * **배포 파일 생성 (`dist/`)**:
   * 설치 파일은 `/dist/SnapCraft-macOS.dmg` 및 `/dist/SnapCraft-macOS.zip`으로 생성하며, `/dist/` 폴더는 `.gitignore`에 의해 Git 커밋에서 제외됩니다.
-* **작업 이력 관리 (`TASKS.md`)**:
-  * 새로운 기능을 구현하거나 버그를 수정할 때는 반드시 루트의 `TASKS.md`에 진행 상태와 완료 내역을 함께 업데이트합니다.
+* **작업 이력 관리**:
+  * `TASKS.md`: 진행 중/예정 작업(Backlog)만 관리합니다. 작업을 끝내면 해당 항목을 삭제합니다.
+  * `CHANGELOG.md`: 릴리즈(`pubspec.yaml` 버전 상승)마다 버전별 변경 사항을 한두 줄로 추가합니다.
