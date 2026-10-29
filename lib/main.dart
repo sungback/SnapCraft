@@ -1,11 +1,15 @@
 import 'dart:io';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
+
 import 'models/annotation.dart';
 import 'models/capture_item.dart';
 import 'services/capture_service.dart';
+import 'services/capture_files.dart';
 import 'services/export_service.dart';
 import 'services/hotkey_service.dart';
 import 'services/update_service.dart';
@@ -78,7 +82,31 @@ class SnapCraftHomeScreen extends StatefulWidget {
 
 class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     with WindowListener {
+  static const _maxHistoryItems = 20;
+  static const _maxHistoryBytes = 256 * 1024 * 1024;
   final List<CaptureItem> _history = [];
+
+  void _releaseCapture(CaptureItem item) {
+    // Painters from the previous frame must finish before their image is released.
+    WidgetsBinding.instance.addPostFrameCallback((_) => item.dispose());
+    unawaited(CaptureFiles.deleteOriginal(item.filePath));
+  }
+
+  bool _trimHistory() {
+    int size(CaptureItem item) =>
+        item.originalBytes.length + item.width * item.height * 4;
+    var bytes = _history.fold<int>(0, (total, item) => total + size(item));
+    var trimmed = false;
+    while (_history.length > 1 &&
+        (_history.length > _maxHistoryItems || bytes > _maxHistoryBytes)) {
+      final oldest = _history.removeLast();
+      bytes -= size(oldest);
+      _releaseCapture(oldest);
+      trimmed = true;
+    }
+    return trimmed;
+  }
+
   CaptureItem? _selectedItem;
 
   AnnotationTool _selectedTool = AnnotationTool.pen;
@@ -101,6 +129,9 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   @override
   void dispose() {
     windowManager.removeListener(this);
+    for (final item in _history) {
+      _releaseCapture(item);
+    }
     super.dispose();
   }
 
@@ -112,6 +143,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   }
 
   Future<void> _initServices() async {
+    unawaited(ExportService.instance.cleanStaleFiles());
     await HotkeyService.instance.initialize((mode) {
       _triggerCapture(mode);
     });
@@ -148,10 +180,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
           duration: const Duration(seconds: 6),
           behavior: SnackBarBehavior.floating,
           width: 460,
-          action: SnackBarAction(
-            label: '업데이트',
-            onPressed: _openUpdateDialog,
-          ),
+          action: SnackBarAction(label: '업데이트', onPressed: _openUpdateDialog),
         ),
       );
     }
@@ -165,28 +194,38 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       _statusMessage = '화면 캡쳐 진행 중... (ESC 키를 누르면 취소됩니다)';
     });
 
-    final item = await CaptureService.instance.capture(
-      mode,
-      hideAppWindow: _hideWindowDuringCapture,
-    );
-
-    if (!mounted) return;
-
-    if (item == null) {
+    try {
+      final item = await CaptureService.instance.capture(
+        mode,
+        hideAppWindow: _hideWindowDuringCapture,
+      );
+      if (!mounted) {
+        item?.dispose();
+        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
+        return;
+      }
       setState(() {
-        _isCapturing = false;
-        _statusMessage = '캡쳐가 취소되었습니다.';
+        if (item == null) {
+          _statusMessage = '캡쳐가 취소되었습니다.';
+        } else {
+          _history.insert(0, item);
+          _selectedItem = item;
+          final trimmed = _trimHistory();
+          _statusMessage =
+              '${item.modeLabel} 완료 (${item.resolutionLabel}) · '
+              '${item.copiedToClipboard ? '클립보드에 자동 복사되었습니다.' : '클립보드 복사에 실패했습니다. 복사 버튼으로 다시 시도하세요.'}'
+              '${trimmed ? ' · 보관 한도에 도달해 오래된 캡쳐를 정리했습니다.' : ''}';
+        }
       });
-      return;
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _statusMessage = '캡쳐에 실패했습니다. 화면 기록 권한을 확인한 후 다시 시도하세요. ($error)';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
     }
-
-    setState(() {
-      _isCapturing = false;
-      _history.insert(0, item);
-      _selectedItem = item;
-      _statusMessage =
-          '${item.modeLabel} 완료 (${item.resolutionLabel}) · 원본이 클립보드에 자동 복사되었습니다.';
-    });
   }
 
   void _addAnnotation(AnnotationItem annotation) {
@@ -241,9 +280,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     if (!mounted) return;
 
     setState(() {
-      _statusMessage = ok
-          ? '마크업이 반영된 이미지를 클립보드에 복사했습니다!'
-          : '클립보드 복사에 실패했습니다.';
+      _statusMessage = ok ? '마크업이 반영된 이미지를 클립보드에 복사했습니다!' : '클립보드 복사에 실패했습니다.';
     });
 
     if (ok) {
@@ -299,6 +336,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       }
       _statusMessage = '캡쳐 항목을 목록에서 삭제했습니다.';
     });
+    _releaseCapture(item);
   }
 
   Future<void> _openShortcutSettings() async {
@@ -317,9 +355,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   Future<void> _openUpdateDialog() async {
     await showDialog<void>(
       context: context,
-      builder: (_) => UpdateDialog(
-        initialReleaseInfo: _latestReleaseInfo,
-      ),
+      builder: (_) => UpdateDialog(initialReleaseInfo: _latestReleaseInfo),
     );
     if (!mounted) return;
     setState(() {
@@ -335,11 +371,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
         const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
-        const SingleActivator(
-          LogicalKeyboardKey.keyZ,
-          meta: true,
-          shift: true,
-        ): _redo,
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
+            _redo,
         const SingleActivator(
           LogicalKeyboardKey.keyZ,
           control: true,
@@ -378,8 +411,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 onSaveFile: _saveToFile,
                 onOpenShortcutSettings: _openShortcutSettings,
                 onOpenUpdateDialog: _openUpdateDialog,
-                availableUpdateVersion:
-                    (_latestReleaseInfo?.hasUpdate ?? false)
+                availableUpdateVersion: (_latestReleaseInfo?.hasUpdate ?? false)
                     ? _latestReleaseInfo?.latestVersion
                     : null,
               ),
@@ -399,6 +431,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                         child: current == null
                             ? _buildEmptyState()
                             : AnnotationCanvas(
+                                key: ValueKey(current.id),
                                 captureItem: current,
                                 selectedTool: _selectedTool,
                                 selectedColor: _selectedColor,
@@ -579,9 +612,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: const BoxDecoration(
         color: Color(0xFF191B22),
-        border: Border(
-          top: BorderSide(color: Color(0xFF2B2E3B), width: 1),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFF2B2E3B), width: 1)),
       ),
       child: Row(
         children: [

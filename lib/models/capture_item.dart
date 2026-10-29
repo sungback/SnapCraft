@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:screen_capturer/screen_capturer.dart';
+
 import 'annotation.dart';
 
 /// 캡쳐된 단일 스크린샷 항목과 마크업 편집 히스토리 모델
@@ -11,6 +13,15 @@ class CaptureItem {
   final ui.Image decodedImage;
   final DateTime capturedAt;
   final CaptureMode mode;
+  bool copiedToClipboard = false;
+  bool _disposed = false;
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    decodedImage.dispose();
+  }
+
   final List<AnnotationItem> annotations;
   final List<AnnotationItem> redoStack;
 
@@ -23,8 +34,8 @@ class CaptureItem {
     required this.mode,
     List<AnnotationItem>? annotations,
     List<AnnotationItem>? redoStack,
-  })  : annotations = annotations ?? [],
-        redoStack = redoStack ?? [];
+  }) : annotations = annotations ?? [],
+       redoStack = redoStack ?? [];
 
   int get width => decodedImage.width;
   int get height => decodedImage.height;

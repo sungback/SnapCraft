@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../services/update_service.dart';
 
 class UpdateDialog extends StatefulWidget {
   final ReleaseInfo? initialReleaseInfo;
 
-  const UpdateDialog({
-    super.key,
-    this.initialReleaseInfo,
-  });
+  const UpdateDialog({super.key, this.initialReleaseInfo});
 
   @override
   State<UpdateDialog> createState() => _UpdateDialogState();
@@ -44,8 +42,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
       _isChecking = false;
       _releaseInfo = info;
       if (info == null) {
-        _errorMessage =
-            'GitHub 서버에서 버전 정보를 가져오지 못했습니다. 네트워크 연결을 확인해 주세요.';
+        _errorMessage = 'GitHub 서버에서 버전 정보를 가져오지 못했습니다. 네트워크 연결을 확인해 주세요.';
       }
     });
   }
@@ -72,6 +69,12 @@ class _UpdateDialogState extends State<UpdateDialog> {
           });
         },
       );
+      if (mounted) {
+        setState(() {
+          _isInstalling = false;
+          _statusText = '설치 파일을 열었습니다. 설치를 완료해 주세요.';
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -165,10 +168,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         SizedBox(height: 12),
                         Text(
                           'GitHub Releases에서 최신 버전을 확인하는 중...',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.white70,
-                          ),
+                          style: TextStyle(fontSize: 13, color: Colors.white70),
                         ),
                       ],
                     ),

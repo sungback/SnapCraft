@@ -1,10 +1,14 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'capture_files.dart';
 import '../models/annotation.dart';
 import '../models/capture_item.dart';
 
@@ -38,10 +42,7 @@ class ExportService {
       Paint()..filterQuality = FilterQuality.high,
     );
 
-    final allItems = <AnnotationItem>[
-      ...annotations,
-      ?activeAnnotation,
-    ];
+    final allItems = <AnnotationItem>[...annotations, ?activeAnnotation];
 
     // 2. 모자이크/블러 레이어 먼저 적용 (그 위에 펜/텍스트를 올릴 수 있도록 순서대로 처리하되 각 아이템별 렌더링)
     for (final item in allItems) {
@@ -133,9 +134,7 @@ class ExportService {
     if (item.points.isEmpty) return;
 
     final paint = Paint()
-      ..color = isHighlighter
-          ? item.color.withValues(alpha: 0.36)
-          : item.color
+      ..color = isHighlighter ? item.color.withValues(alpha: 0.36) : item.color
       ..strokeWidth = isHighlighter ? item.strokeWidth * 3.2 : item.strokeWidth
       ..strokeCap = isHighlighter ? StrokeCap.square : StrokeCap.round
       ..strokeJoin = StrokeJoin.round
@@ -265,21 +264,45 @@ class ExportService {
       return item.originalBytes;
     }
 
+    // Keep an independent handle while the capture may be removed from history.
+    final image = item.decodedImage.clone();
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
+    ui.Picture? picture;
+    ui.Image? renderedImage;
+    try {
+      final canvas = Canvas(recorder);
+      paintCaptureScene(
+        canvas: canvas,
+        image: image,
+        annotations: List.of(item.annotations),
+      );
+      picture = recorder.endRecording();
+      renderedImage = await picture.toImage(image.width, image.height);
+      final byteData = await renderedImage.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      if (byteData == null) throw StateError('PNG 인코딩 실패');
+      return byteData.buffer.asUint8List();
+    } finally {
+      renderedImage?.dispose();
+      if (recorder.isRecording) recorder.endRecording().dispose();
+      picture?.dispose();
+      image.dispose();
+    }
+  }
 
-    paintCaptureScene(
-      canvas: canvas,
-      image: item.decodedImage,
-      annotations: item.annotations,
-    );
-
-    final picture = recorder.endRecording();
-    final renderedImage = await picture.toImage(item.width, item.height);
-    final byteData = await renderedImage.toByteData(
-      format: ui.ImageByteFormat.png,
-    );
-    return byteData!.buffer.asUint8List();
+  Future<void> cleanStaleFiles() async {
+    try {
+      String? clipboardPath;
+      if (Platform.isMacOS) {
+        clipboardPath = await _macClipboardChannel.invokeMethod<String>(
+          'currentFilePath',
+        );
+      }
+      await CaptureFiles.cleanStale(clipboardPath: clipboardPath);
+    } catch (_) {
+      // Never let cleanup prevent capture or startup.
+    }
   }
 
   /// 마크업이 반영된 최종 이미지를 시스템 클립보드에 복사합니다.
@@ -288,15 +311,17 @@ class ExportService {
   Future<bool> copyToClipboard(CaptureItem item) async {
     try {
       final pngBytes = await renderAnnotatedPng(item);
-      await File(item.filePath).writeAsBytes(pngBytes);
-
       if (Platform.isMacOS) {
+        final temp = await getTemporaryDirectory();
+        final folder = Directory('${temp.path}/snap_craft_clipboard');
+        await folder.create(recursive: true);
+        final clipboardFile = File(
+          '${folder.path}/clipboard_${DateTime.now().microsecondsSinceEpoch}.png',
+        );
+        await clipboardFile.writeAsBytes(pngBytes, flush: true);
         final ok = await _macClipboardChannel.invokeMethod<bool>(
           'copyImageAndFile',
-          {
-            'bytes': pngBytes,
-            'path': item.filePath,
-          },
+          {'bytes': pngBytes, 'path': clipboardFile.path},
         );
         return ok ?? true;
       }
@@ -331,8 +356,9 @@ class ExportService {
       return null;
     }
 
-    final finalPath =
-        savePath.toLowerCase().endsWith('.png') ? savePath : '$savePath.png';
+    final finalPath = savePath.toLowerCase().endsWith('.png')
+        ? savePath
+        : '$savePath.png';
     final file = File(finalPath);
     await file.writeAsBytes(pngBytes);
     return finalPath;

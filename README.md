@@ -87,3 +87,25 @@ flutter build macos --release
 # Windows Release 빌드
 flutter build windows --release
 ```
+
+### 배포 서명 설정
+
+GitHub Actions의 macOS 배포에는 다음 Repository Secrets가 필요합니다.
+
+| Secret | 값 |
+| --- | --- |
+| `MACOS_CERTIFICATE_BASE64` | 개인 키를 포함한 개발자 인증서 `.p12` 파일의 Base64 문자열 |
+| `MACOS_CERTIFICATE_PASSWORD` | `.p12` 내보내기 암호 |
+| `MACOS_KEYCHAIN_PASSWORD` | CI 임시 키체인용 암호 |
+| `MACOS_SIGNING_IDENTITY` | 인증서의 전체 이름 (`Developer ID Application: …` 또는 `Apple Development: …`) |
+
+인증서 이름은 `security find-identity -v -p codesigning`으로 확인합니다. Secrets가 없거나 서명 검증이 실패하면 macOS 배포를 중단합니다. PR에서는 분석과 테스트를 실행하며, 인증서를 요구하는 macOS Release 빌드·패키징은 수행하지 않습니다. 이 설정은 코드 서명을 다루며 Apple 공증(notarization)은 포함하지 않습니다.
+
+### 업데이트 복구와 임시 파일
+
+- 업데이트는 기존 앱 옆에 새 앱을 준비한 뒤 기존 앱을 백업하고 교체합니다. 이동 또는 실행 명령이 실패하면 백업을 복원합니다. 실행 명령 성공 후 발생하는 앱 내부 크래시까지 감지하지는 않습니다.
+- macOS 백업은 기존 앱 경로 뒤의 `.snapcraft-previous.app`, Windows 백업은 설치 폴더 뒤의 `.snapcraft-previous`에 보관하며 다음 교체 시 갱신합니다. 복구가 필요하면 앱을 종료하고 백업을 원래 이름으로 되돌립니다.
+- 설치 폴더와 그 상위 폴더에 쓰기 권한이 필요합니다. Windows ZIP은 다른 사용자 파일과 섞지 말고 전용 SnapCraft 폴더에 압축 해제하세요.
+- 설치 결과는 앱 지원 폴더의 `update-install.log`에 기록합니다. macOS에서는 일반적으로 `~/Library/Application Support/com.example.snapCraft/` 아래에 있습니다.
+- 최근 캡쳐는 최대 20개 또는 원본 PNG와 디코딩 이미지의 추정 합계 256MB까지 보관합니다. 최신 한 개는 크기에 관계없이 유지하며, 한도를 넘으면 오래된 항목과 해당 편집 내용을 정리합니다. 필요한 이미지는 PNG로 저장하세요.
+- 캡쳐 삭제 시 원본 임시 파일과 이미지 리소스를 해제합니다. 클립보드용 PNG는 독립 파일로 보관하므로 목록에서 삭제해도 붙여넣을 수 있습니다. 시작 시 7일 지난 임시 파일을 정리하며 현재 macOS 클립보드가 참조하는 파일은 보존합니다.

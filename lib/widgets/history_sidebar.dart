@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../models/capture_item.dart';
 
 class HistorySidebar extends StatelessWidget {
@@ -21,9 +22,7 @@ class HistorySidebar extends StatelessWidget {
       width: 240,
       decoration: const BoxDecoration(
         color: Color(0xFF191B22),
-        border: Border(
-          right: BorderSide(color: Color(0xFF2B2E3B), width: 1),
-        ),
+        border: Border(right: BorderSide(color: Color(0xFF2B2E3B), width: 1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,8 +121,8 @@ class HistorySidebar extends StatelessWidget {
                                 child: Container(
                                   height: 105,
                                   color: Colors.black38,
-                                  child: Image.memory(
-                                    item.originalBytes,
+                                  child: RawImage(
+                                    image: item.decodedImage,
                                     fit: BoxFit.contain,
                                   ),
                                 ),

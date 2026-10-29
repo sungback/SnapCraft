@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
+
 import '../models/capture_item.dart';
 import 'export_service.dart';
 
@@ -34,7 +37,10 @@ class CaptureService {
     if (_isCapturing) return null;
     _isCapturing = true;
 
-    bool wasVisible = true;
+    bool wasVisible = false;
+    CaptureItem? item;
+    bool completed = false;
+    String? pendingPath;
     try {
       if (hideAppWindow) {
         wasVisible = await windowManager.isVisible();
@@ -53,6 +59,7 @@ class CaptureService {
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final filePath = '${capturesDir.path}/snap_$timestamp.png';
+      pendingPath = filePath;
 
       Uint8List? imageBytes;
       if (Platform.isWindows && mode == CaptureMode.window) {
@@ -66,17 +73,18 @@ class CaptureService {
           return null;
         }
       } else {
-        final capturedData = await screenCapturer.capture(
+        // The convenience wrapper decodes another image without exposing its
+        // lifetime. Capture the file directly and decode exactly once below.
+        await ScreenCapturerPlatform.instance.systemScreenCapturer.capture(
           mode: mode,
           imagePath: filePath,
           copyToClipboard: false,
           silent: true,
         );
-        imageBytes = capturedData?.imageBytes;
       }
 
       final file = File(filePath);
-      if (imageBytes == null && await file.exists()) {
+      if (await file.exists()) {
         final length = await file.length();
         if (length > 0) {
           imageBytes = await file.readAsBytes();
@@ -89,9 +97,14 @@ class CaptureService {
       }
 
       final codec = await ui.instantiateImageCodec(imageBytes);
-      final frame = await codec.getNextFrame();
+      late ui.FrameInfo frame;
+      try {
+        frame = await codec.getNextFrame();
+      } finally {
+        codec.dispose();
+      }
 
-      final item = CaptureItem(
+      item = CaptureItem(
         id: 'snap_$timestamp',
         filePath: filePath,
         originalBytes: imageBytes,
@@ -101,14 +114,32 @@ class CaptureService {
       );
 
       // 캡쳐 직후 클립보드에 이미지 + 파일 경로 자동 복사
-      await ExportService.instance.copyToClipboard(item);
+      item.copiedToClipboard = await ExportService.instance.copyToClipboard(
+        item,
+      );
+      completed = true;
 
       return item;
     } finally {
-      _isCapturing = false;
-      if (hideAppWindow && wasVisible) {
-        await windowManager.show();
-        await windowManager.focus();
+      try {
+        if (!completed) item?.dispose();
+        if (!completed && pendingPath != null) {
+          try {
+            final file = File(pendingPath);
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+        if (hideAppWindow && wasVisible) {
+          try {
+            await windowManager.show();
+            await windowManager.focus();
+          } catch (error) {
+            // A restoration failure must not discard a successful capture.
+            debugPrint('캡쳐 후 창 복원 실패: $error');
+          }
+        }
+      } finally {
+        _isCapturing = false;
       }
     }
   }

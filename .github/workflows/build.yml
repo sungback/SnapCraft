@@ -51,27 +51,78 @@ jobs:
           flutter config --enable-macos-desktop
           flutter pub get
 
+      - name: Analyze and test
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Import release signing identity
+        if: github.event_name != 'pull_request'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${CERTIFICATE_BASE64:?Configure MACOS_CERTIFICATE_BASE64 (p12)}"
+          : "${CERTIFICATE_PASSWORD:?Configure MACOS_CERTIFICATE_PASSWORD}"
+          : "${KEYCHAIN_PASSWORD:?Configure MACOS_KEYCHAIN_PASSWORD}"
+          CERT_PATH="$RUNNER_TEMP/signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/snapcraft-signing.keychain-db"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          rm -f "$CERT_PATH"
+
       - name: Build macOS Release (arm64 only)
+        if: github.event_name != 'pull_request'
         run: |
           flutter build macos --release \
             --build-name=${{ steps.version.outputs.app_version }} \
             --build-number=${{ steps.version.outputs.build_number }} \
             --dart-define=APP_VERSION=${{ steps.version.outputs.app_version }}
 
-      - name: Package macOS .zip and .dmg in parallel
+      - name: Sign and verify release
+        if: github.event_name != 'pull_request'
+        env:
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
+          set -euo pipefail
+          : "${SIGNING_IDENTITY:?Configure MACOS_SIGNING_IDENTITY}"
+          case "$SIGNING_IDENTITY" in
+            'Developer ID Application:'*|'Apple Development:'*) ;;
+            *) echo 'A developer signing identity is required'; exit 1 ;;
+          esac
           APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
-          codesign --force --deep --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
+          codesign --force --deep --options runtime --entitlements macos/Runner/Release.entitlements --sign "$SIGNING_IDENTITY" "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH"
+          codesign -dv "$APP_PATH"
+
+      - name: Package macOS .zip and .dmg
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
           mkdir -p dist dmg_staging
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/SnapCraft-macOS.zip &
-          (
-            cp -R "$APP_PATH" dmg_staging/
-            ln -s /Applications dmg_staging/Applications
-            hdiutil create -volname "SnapCraft" -srcfolder dmg_staging -ov -format ULFO dist/SnapCraft-macOS.dmg
-          ) &
-          wait
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/SnapCraft-macOS.zip
+          cp -R "$APP_PATH" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "SnapCraft" -srcfolder dmg_staging -ov -format ULFO dist/SnapCraft-macOS.dmg
+
+      - name: Remove signing keychain
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          rm -f "$RUNNER_TEMP/signing.p12"
+          if [ -f "$RUNNER_TEMP/snapcraft-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/snapcraft-signing.keychain-db"
+          fi
 
       - name: Upload macOS Artifacts
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: SnapCraft-macOS
@@ -108,6 +159,11 @@ jobs:
         run: |
           flutter config --enable-windows-desktop
           flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze
+          flutter test
 
       - name: Build Windows Release
         run: |

@@ -4,6 +4,10 @@
 
 ## Todo & Backlog
 
+- [ ] **서명된 배포 경로 검증**
+  - [ ] README의 macOS 인증서 Secrets 4개를 GitHub 저장소에 등록하고 서명된 Release CI 실행
+  - [ ] 실제 macOS/Windows 설치본에서 업데이트 성공·실패 복원 및 화면 기록 권한 유지 확인
+
 - [ ] **Windows 환경 빌드 및 패키징 검증**
   - [ ] Windows에서 `flutter build windows --release` 테스트 및 설치 파일(`.exe` / `.msix`) 생성
   - [ ] Windows 멀티 포맷 클립보드 동작 점검

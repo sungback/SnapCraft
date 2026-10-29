@@ -17,7 +17,10 @@ class MainFlutterWindow: NSWindow {
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
     clipboardChannel.setMethodCallHandler { call, result in
-      if call.method == "copyImageAndFile" {
+      if call.method == "currentFilePath" {
+        let value = NSPasteboard.general.string(forType: .fileURL)
+        result(value.flatMap { URL(string: $0)?.path })
+      } else if call.method == "copyImageAndFile" {
         guard
           let args = call.arguments as? [String: Any],
           let typedData = args["bytes"] as? FlutterStandardTypedData,

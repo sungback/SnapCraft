@@ -119,6 +119,9 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
       ),
     );
 
+    // Wait for the dialog route to release its text field before disposal.
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    if (!mounted) return;
     if (enteredText != null && enteredText.trim().isNotEmpty) {
       widget.onAddAnnotation(
         AnnotationItem(
