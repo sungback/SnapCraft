@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -11,6 +12,7 @@ import 'models/capture_item.dart';
 import 'services/capture_service.dart';
 import 'services/capture_files.dart';
 import 'services/export_service.dart';
+import 'services/export_settings_service.dart';
 import 'services/hotkey_service.dart';
 import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
@@ -114,6 +116,9 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   double _strokeWidth = 5.0;
 
   bool _isCapturing = false;
+  final _exportSettings = ExportSettingsService();
+  bool _exportSettingsLoading = true;
+  bool _exportBusy = false;
   bool _hideWindowDuringCapture = true;
   String _appVersion = UpdateService.defaultVersion;
   ReleaseInfo? _latestReleaseInfo;
@@ -124,6 +129,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     super.initState();
     windowManager.addListener(this);
     _initServices();
+    _loadExportSettings();
   }
 
   @override
@@ -295,12 +301,68 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     }
   }
 
-  Future<void> _saveToFile() async {
+  Future<void> _loadExportSettings() async {
+    try {
+      await _exportSettings.load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = '저장 폴더 설정을 불러오지 못했습니다: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _exportSettingsLoading = false);
+    }
+  }
+
+  Future<void> _changeSaveDirectory({bool clear = false}) async {
+    if (_exportSettingsLoading || _exportBusy) return;
+    setState(() => _exportBusy = true);
+    try {
+      String? directory;
+      if (!clear) {
+        String? initialDirectory;
+        final previousDirectory = _exportSettings.directory;
+        if (previousDirectory != null) {
+          try {
+            if (await Directory(previousDirectory).exists()) {
+              initialDirectory = previousDirectory;
+            }
+          } on FileSystemException {
+            // A disconnected or inaccessible folder must not block choosing another.
+          }
+        }
+        if (!mounted) return;
+        if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
+        directory = await FilePicker.getDirectoryPath(
+          dialogTitle: 'PNG 저장 폴더 지정',
+          initialDirectory: initialDirectory,
+        );
+        if (directory == null || directory.isEmpty || !mounted) return;
+      }
+      await _exportSettings.setDirectory(directory);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = directory == null
+            ? '저장 폴더 지정을 해제했습니다.'
+            : 'PNG 저장 폴더: $directory';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _statusMessage = '저장 폴더 설정 실패: $e');
+    } finally {
+      if (mounted) setState(() => _exportBusy = false);
+    }
+  }
+
+  Future<void> _saveToFile({bool chooseLocation = false}) async {
     final current = _selectedItem;
-    if (current == null) return;
+    if (current == null || _exportSettingsLoading || _exportBusy) return;
+    final directory = chooseLocation ? null : _exportSettings.directory;
+    setState(() => _exportBusy = true);
 
     try {
-      final savedPath = await ExportService.instance.saveToFile(current);
+      final savedPath = await ExportService.instance.saveToFile(
+        current,
+        directory: directory,
+      );
       if (!mounted || savedPath == null) return;
 
       setState(() {
@@ -317,8 +379,10 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _statusMessage = '파일 저장 중 오류 발생: $e';
+        _statusMessage = '파일 저장 실패: $e · PNG 저장 옵션에서 폴더를 변경하거나 다른 위치에 저장하세요.';
       });
+    } finally {
+      if (mounted) setState(() => _exportBusy = false);
     }
   }
 
@@ -409,6 +473,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 onClearAnnotations: _clearAnnotations,
                 onCopyClipboard: _copyToClipboard,
                 onSaveFile: _saveToFile,
+                saveDirectory: _exportSettings.directory,
+                isExportBusy: _exportSettingsLoading || _exportBusy,
+                onChooseSaveDirectory: _changeSaveDirectory,
+                onClearSaveDirectory: () => _changeSaveDirectory(clear: true),
+                onSaveFileAs: () => _saveToFile(chooseLocation: true),
                 onOpenShortcutSettings: _openShortcutSettings,
                 onOpenUpdateDialog: _openUpdateDialog,
                 availableUpdateVersion: (_latestReleaseInfo?.hasUpdate ?? false)

@@ -334,15 +334,47 @@ class ExportService {
   }
 
   /// 마크업이 반영된 최종 이미지를 PNG 파일로 저장합니다.
-  Future<String?> saveToFile(CaptureItem item) async {
-    if (Platform.isMacOS) {
+  Future<String?> saveToFile(CaptureItem item, {String? directory}) async {
+    final pngBytes = await renderAnnotatedPng(item);
+    if (directory == null && Platform.isMacOS) {
       await FilePicker.skipEntitlementsChecks();
     }
 
-    final pngBytes = await renderAnnotatedPng(item);
     final defaultFileName =
         'SnapCraft_${item.capturedAt.year}${_twoDigits(item.capturedAt.month)}${_twoDigits(item.capturedAt.day)}_'
         '${_twoDigits(item.capturedAt.hour)}${_twoDigits(item.capturedAt.minute)}${_twoDigits(item.capturedAt.second)}.png';
+
+    if (directory != null) {
+      final folder = Directory(directory);
+      if (!await folder.exists()) {
+        throw FileSystemException('저장 폴더를 찾을 수 없습니다', directory);
+      }
+      final stem = defaultFileName.substring(0, defaultFileName.length - 4);
+      for (var suffix = 0; ; suffix++) {
+        final name = suffix == 0 ? defaultFileName : '${stem}_$suffix.png';
+        final file = File.fromUri(folder.absolute.uri.resolve(name));
+        try {
+          await file.create(exclusive: true);
+        } on FileSystemException {
+          if (await FileSystemEntity.type(file.path, followLinks: false) !=
+              FileSystemEntityType.notFound) {
+            continue;
+          }
+          rethrow;
+        }
+        try {
+          await file.writeAsBytes(pngBytes, flush: true);
+          return file.path;
+        } catch (_) {
+          try {
+            await file.delete();
+          } on FileSystemException {
+            // Preserve the write error if cleanup also fails.
+          }
+          rethrow;
+        }
+      }
+    }
 
     final savePath = await FilePicker.saveFile(
       dialogTitle: '캡쳐 이미지 저장',

@@ -4,6 +4,8 @@ import 'package:screen_capturer/screen_capturer.dart';
 import '../models/annotation.dart';
 import '../services/hotkey_service.dart';
 
+enum _SaveAction { chooseDirectory, clearDirectory, saveAs }
+
 class TopToolbar extends StatelessWidget {
   final bool hasActiveCapture;
   final bool isCapturing;
@@ -21,6 +23,11 @@ class TopToolbar extends StatelessWidget {
   final VoidCallback onClearAnnotations;
   final VoidCallback onCopyClipboard;
   final VoidCallback onSaveFile;
+  final String? saveDirectory;
+  final bool isExportBusy;
+  final VoidCallback onChooseSaveDirectory;
+  final VoidCallback onClearSaveDirectory;
+  final VoidCallback onSaveFileAs;
   final VoidCallback onOpenShortcutSettings;
   final VoidCallback onOpenUpdateDialog;
   final String? availableUpdateVersion;
@@ -43,6 +50,11 @@ class TopToolbar extends StatelessWidget {
     required this.onClearAnnotations,
     required this.onCopyClipboard,
     required this.onSaveFile,
+    required this.saveDirectory,
+    required this.isExportBusy,
+    required this.onChooseSaveDirectory,
+    required this.onClearSaveDirectory,
+    required this.onSaveFileAs,
     required this.onOpenShortcutSettings,
     required this.onOpenUpdateDialog,
     this.availableUpdateVersion,
@@ -183,7 +195,9 @@ class TopToolbar extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
-                onPressed: hasActiveCapture ? onSaveFile : null,
+                onPressed: hasActiveCapture && !isExportBusy
+                    ? onSaveFile
+                    : null,
                 icon: const Icon(Icons.download_rounded, size: 18),
                 label: const Text('PNG 저장'),
                 style: FilledButton.styleFrom(
@@ -194,6 +208,52 @@ class TopToolbar extends StatelessWidget {
                     vertical: 12,
                   ),
                 ),
+              ),
+              PopupMenuButton<_SaveAction>(
+                tooltip: 'PNG 저장 옵션',
+                enabled: !isExportBusy,
+                icon: const Icon(Icons.arrow_drop_down_rounded),
+                onSelected: (action) {
+                  switch (action) {
+                    case _SaveAction.chooseDirectory:
+                      onChooseSaveDirectory();
+                    case _SaveAction.clearDirectory:
+                      onClearSaveDirectory();
+                    case _SaveAction.saveAs:
+                      onSaveFileAs();
+                  }
+                },
+                itemBuilder: (_) => [
+                  if (saveDirectory != null)
+                    PopupMenuItem<_SaveAction>(
+                      enabled: false,
+                      child: Tooltip(
+                        message: saveDirectory!,
+                        child: Text(
+                          saveDirectory!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  PopupMenuItem(
+                    value: _SaveAction.chooseDirectory,
+                    child: Text(
+                      saveDirectory == null ? '저장 폴더 지정…' : '저장 폴더 변경…',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _SaveAction.clearDirectory,
+                    enabled: saveDirectory != null,
+                    child: const Text('저장 폴더 지정 해제'),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: _SaveAction.saveAs,
+                    enabled: hasActiveCapture,
+                    child: const Text('다른 위치에 저장…'),
+                  ),
+                ],
               ),
             ],
           ),
