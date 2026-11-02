@@ -13,7 +13,6 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:snap_craft/main.dart';
-import 'package:snap_craft/services/capture_service.dart';
 import 'package:snap_craft/widgets/top_toolbar.dart';
 
 class _Picker extends FilePickerPlatform {
@@ -25,6 +24,8 @@ class _Picker extends FilePickerPlatform {
   set save(Completer<String?> value) => _save = value;
   int directoryCalls = 0;
   int saveCalls = 0;
+  Completer<void>? directoryStarted;
+  Completer<void>? saveStarted;
   String? lastInitialDirectory;
 
   @override
@@ -34,6 +35,7 @@ class _Picker extends FilePickerPlatform {
     String? initialDirectory,
   }) {
     directoryCalls++;
+    directoryStarted?.complete();
     lastInitialDirectory = initialDirectory;
     return directory.future;
   }
@@ -49,6 +51,7 @@ class _Picker extends FilePickerPlatform {
     bool lockParentWindow = false,
   }) {
     saveCalls++;
+    saveStarted?.complete();
     return save.future;
   }
 }
@@ -130,10 +133,12 @@ void main() {
     final previousCalls = picker.directoryCalls;
     await tester.runAsync(() async {
       picker.directory = Completer<String?>();
+      picker.directoryStarted = Completer<void>();
       toolbar(tester).onChooseSaveDirectory();
-      for (var i = 0; i < 100 && picker.directoryCalls == previousCalls; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
+      await picker.directoryStarted!.future.timeout(
+        const Duration(seconds: 10),
+      );
+      picker.directoryStarted = null;
     });
     await tester.pumpAndSettle();
     expect(picker.directoryCalls, previousCalls + 1);
@@ -250,20 +255,19 @@ void main() {
       });
       await launch(tester);
       await tester.runAsync(() async {
-        toolbar(tester).onTriggerCapture(CaptureMode.region);
-        for (var i = 0; i < 100 && CaptureService.instance.isCapturing; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+        await (Function.apply(toolbar(tester).onTriggerCapture, [
+          CaptureMode.region,
+        ]) as Future<void>);
       });
       await tester.pumpAndSettle();
       expect(toolbar(tester).hasActiveCapture, isTrue);
 
       for (var attempt = 0; attempt < 2; attempt++) {
         await tester.runAsync(() async {
+          picker.saveStarted = Completer<void>();
           toolbar(tester).onSaveFile();
-          for (var i = 0; i < 100 && picker.saveCalls <= attempt; i++) {
-            await Future<void>.delayed(const Duration(milliseconds: 10));
-          }
+          await picker.saveStarted!.future.timeout(const Duration(seconds: 10));
+          picker.saveStarted = null;
         });
         await tester.pumpAndSettle();
         expect(toolbar(tester).isExportBusy, isTrue);
@@ -288,6 +292,44 @@ void main() {
         picker.save = Completer<String?>();
       }
       expect(find.textContaining('파일 저장 실패:'), findsOneWidget);
+
+      // A one-off save must not replace the folder used by later saves.
+      await chooseDirectory(tester);
+      await finishDirectory(tester, temp.path);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString('png_save_directory'), temp.path);
+      final chosenPath = File.fromUri(temp.uri.resolve('one-off.png')).path;
+      await tester.runAsync(() async {
+        picker.save = Completer<String?>();
+        picker.saveStarted = Completer<void>();
+        final pending =
+            Function.apply(toolbar(tester).onSaveFileAs, []) as Future<void>;
+        await picker.saveStarted!.future.timeout(const Duration(seconds: 10));
+        picker.saveStarted = null;
+        picker.save.complete(chosenPath);
+        await pending;
+      });
+      await tester.pumpAndSettle();
+      expect(await tester.runAsync(() => File(chosenPath).exists()), isTrue);
+      expect(toolbar(tester).saveDirectory, temp.path);
+      expect(preferences.getString('png_save_directory'), temp.path);
+      expect(find.textContaining('PNG 저장 완료:'), findsOneWidget);
+      await tester.runAsync(() async {
+        final oneOffBytes = await File(chosenPath).readAsBytes();
+        expect(oneOffBytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+        final previousCalls = picker.saveCalls;
+        await (Function.apply(toolbar(tester).onSaveFile, []) as Future<void>);
+        expect(picker.saveCalls, previousCalls);
+        final files = await temp.list().where((entry) {
+          return entry is File &&
+              entry.uri.pathSegments.last.startsWith('SnapCraft_') &&
+              entry.path.endsWith('.png');
+        }).toList();
+        expect(files, hasLength(1));
+        expect(await File(chosenPath).readAsBytes(), oneOffBytes);
+      });
+      await tester.pumpAndSettle();
+      expect(toolbar(tester).saveDirectory, temp.path);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     },

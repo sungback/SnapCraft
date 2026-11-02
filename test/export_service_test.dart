@@ -161,6 +161,30 @@ void main() {
     expect(picker.calls, 0);
   });
 
+  test('a failed write removes the partial file and allows retry', () async {
+    final existing = File('${folder.path}/$name');
+    await existing.writeAsString('keep');
+    await expectLater(
+      export.saveToFile(
+        item,
+        directory: folder.path,
+        writeFile: (file, bytes) async {
+          await file.writeAsBytes(bytes.take(8).toList());
+          throw const FileSystemException('write failed');
+        },
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await existing.readAsString(), 'keep');
+    expect(await folder.list().length, 1);
+    final retry = await export.saveToFile(item, directory: folder.path);
+    expect(
+      File(retry!).uri,
+      File('${folder.path}/SnapCraft_20260102_030405_1.png').uri,
+    );
+    await expectAnnotatedPng(retry);
+  });
+
   test('dialog save adds the PNG extension and renders annotations', () async {
     picker.result = '${folder.path}/chosen';
     final path = await export.saveToFile(item);

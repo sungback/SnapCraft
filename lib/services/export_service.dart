@@ -334,7 +334,11 @@ class ExportService {
   }
 
   /// 마크업이 반영된 최종 이미지를 PNG 파일로 저장합니다.
-  Future<String?> saveToFile(CaptureItem item, {String? directory}) async {
+  Future<String?> saveToFile(
+    CaptureItem item, {
+    String? directory,
+    @visibleForTesting Future<void> Function(File, Uint8List)? writeFile,
+  }) async {
     final pngBytes = await renderAnnotatedPng(item);
     if (directory == null && Platform.isMacOS) {
       await FilePicker.skipEntitlementsChecks();
@@ -363,7 +367,11 @@ class ExportService {
           rethrow;
         }
         try {
-          await file.writeAsBytes(pngBytes, flush: true);
+          if (writeFile != null) {
+            await writeFile(file, pngBytes);
+          } else {
+            await file.writeAsBytes(pngBytes, flush: true);
+          }
           return file.path;
         } catch (_) {
           try {
