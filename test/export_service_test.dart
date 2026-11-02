@@ -110,10 +110,10 @@ void main() {
     'direct save uses the configured Unicode path and annotated pixels',
     () async {
       final path = await export.saveToFile(item, directory: folder.path);
-      expect(path, File('${folder.path}/$name').path);
+      expect(File(path!).uri, File('${folder.path}/$name').uri);
       expect(picker.calls, 0);
       expect(picker.entitlementCalls, 0);
-      await expectAnnotatedPng(path!);
+      await expectAnnotatedPng(path);
     },
   );
 
@@ -125,11 +125,17 @@ void main() {
       final first = await export.saveToFile(item, directory: folder.path);
       final firstBytes = await File(first!).readAsBytes();
       final second = await export.saveToFile(item, directory: folder.path);
-      expect(first, '${folder.path}/SnapCraft_20260102_030405_1.png');
-      expect(second, '${folder.path}/SnapCraft_20260102_030405_2.png');
+      expect(
+        File(first).uri,
+        File('${folder.path}/SnapCraft_20260102_030405_1.png').uri,
+      );
+      expect(
+        File(second!).uri,
+        File('${folder.path}/SnapCraft_20260102_030405_2.png').uri,
+      );
       expect(await original.readAsString(), 'existing file');
       expect(await File(first).readAsBytes(), orderedEquals(firstBytes));
-      await expectAnnotatedPng(second!);
+      await expectAnnotatedPng(second);
     },
   );
 
