@@ -372,7 +372,7 @@ class UpdateService {
     }
     await _verifyMacSignature(newAppBundle.path);
 
-    // macOS TCC(화면 기록 권한) 유지를 위해 로컬 키체인의 개발자 인증서가 있으면 자동 서명 적용
+    // 로컬 키체인에 개발자 인증서가 있으면 TCC(화면 기록 권한) 유지를 위해 재서명 (없으면 배포본의 Ad-hoc 서명 유지)
     onProgress(0.91, '화면 기록 권한(TCC) 유지를 위해 인증서 서명 확인 중...');
     await _resignMacBundleForTcc(newAppBundle.path, updateDir);
 
@@ -500,12 +500,8 @@ class UpdateService {
       '--strict',
       appPath,
     ]);
-    final details = await Process.run('/usr/bin/codesign', ['-dv', appPath]);
-    if (result.exitCode != 0 ||
-        details.exitCode != 0 ||
-        !details.stderr.toString().contains('TeamIdentifier=') ||
-        details.stderr.toString().contains('TeamIdentifier=not set')) {
-      throw Exception('정식 인증서로 서명되지 않은 업데이트입니다: ${result.stderr}');
+    if (result.exitCode != 0) {
+      throw Exception('손상되었거나 서명이 유효하지 않은 업데이트입니다: ${result.stderr}');
     }
   }
 

@@ -92,16 +92,11 @@ flutter build windows --release
 
 ### 배포 서명 설정
 
-GitHub Actions의 macOS 배포에는 다음 Repository Secrets가 필요합니다.
+CI는 개발자 인증서나 Secrets 없이 macOS 앱을 Ad-hoc 서명(`codesign --sign -`)으로 빌드·배포합니다. 앱 내 자동 업데이트는 직접 내려받으므로 Gatekeeper 격리 속성이 붙지 않아 별도 인증서 없이 동작하며, 서명 구조(`codesign --verify --deep --strict`)만 검증합니다.
 
-| Secret | 값 |
-| --- | --- |
-| `MACOS_CERTIFICATE_BASE64` | 개인 키를 포함한 개발자 인증서 `.p12` 파일의 Base64 문자열 |
-| `MACOS_CERTIFICATE_PASSWORD` | `.p12` 내보내기 암호 |
-| `MACOS_KEYCHAIN_PASSWORD` | CI 임시 키체인용 암호 |
-| `MACOS_SIGNING_IDENTITY` | 인증서의 전체 이름 (`Developer ID Application: …` 또는 `Apple Development: …`) |
-
-인증서 이름은 `security find-identity -v -p codesigning`으로 확인합니다. Secrets가 없거나 서명 검증이 실패하면 macOS 배포를 중단합니다. PR에서는 분석과 테스트를 실행하며, 인증서를 요구하는 macOS Release 빌드·패키징은 수행하지 않습니다. 이 설정은 코드 서명을 다루며 Apple 공증(notarization)은 포함하지 않습니다.
+- Ad-hoc 서명은 빌드마다 `cdhash`가 바뀌므로 업데이트 후 macOS 화면 기록 권한이 다시 요청될 수 있습니다.
+- 업데이트를 설치하는 Mac의 키체인에 `Developer ID Application` 또는 `Apple Development` 인증서가 있으면 설치 전에 자동 재서명하여 권한을 유지합니다.
+- 브라우저로 내려받은 DMG/ZIP은 첫 실행 시 Gatekeeper 경고가 나타날 수 있습니다(우클릭 → 열기). 공증(notarization)은 포함하지 않습니다.
 
 ### 업데이트 복구와 임시 파일
 

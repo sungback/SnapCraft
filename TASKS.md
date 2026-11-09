@@ -4,8 +4,14 @@
 
 ## Todo & Backlog
 
-- [ ] **서명된 배포 경로 검증**
-  - [ ] README의 macOS 인증서 Secrets 4개를 GitHub 저장소에 등록하고 서명된 Release CI 실행
+## 최근 완료
+
+- **v1.0.6 릴리스 (`c2ce318`)**: 캡쳐 실패 복구, 업데이트 백업·실패 시 복원, macOS 서명 검증 강화, 캡쳐 메모리·임시 파일 정리를 적용하고 macOS DMG/ZIP 및 Windows ZIP을 공개했습니다.
+- **검증**: 로컬 `flutter analyze` 및 `flutter test` 통과, Windows CI 테스트·Release ZIP 빌드 통과. macOS 앱은 로컬 Apple Development 인증서로 서명했습니다.
+- **후속 확인**: macOS CI 서명 Secrets가 없어 CI 자동 배포는 실패했습니다. GitHub Secrets 설정과 실제 설치 환경에서 업데이트·화면 기록 권한 검증을 Todo에 남겼습니다.
+
+- [ ] **배포 경로 검증**
+  - [ ] Secrets 없는 Ad-hoc 서명 Release CI 실행 확인 (main push)
   - [ ] 실제 macOS/Windows 설치본에서 업데이트 성공·실패 복원 및 화면 기록 권한 유지 확인
 
 - [ ] **Windows 환경 빌드 및 패키징 검증**
