@@ -2,6 +2,9 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.10
+- v1.0.9 macOS 빌드가 실행 직후 종료(HotKey.framework 라이브러리 검증 실패)되는 문제 수정: Ad-hoc 서명에서 hardened runtime 제거
+
 ## v1.0.9
 - macOS 배포를 인증서·Secrets 없는 Ad-hoc 서명으로 전환하고, 인앱 업데이트는 서명 구조만 검증 (개발자 인증서가 있는 Mac은 설치 전 재서명 유지)
 

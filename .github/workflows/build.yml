@@ -68,9 +68,10 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
+          # Ad-hoc 서명에서는 hardened runtime(--options runtime)을 쓰면 라이브러리 검증이 실패해 실행 시 크래시합니다.
           # 개발자 인증서 없이 배포합니다. Ad-hoc 서명이므로 업데이트 시 화면 기록 권한이 다시 요청될 수 있습니다.
           APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
-          codesign --force --deep --options runtime --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
+          codesign --force --deep --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
           codesign --verify --deep --strict "$APP_PATH"
           codesign -dv "$APP_PATH"
 
