@@ -258,7 +258,7 @@ class TopToolbar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          // 2단: 마크업 편집 도구 바 (펜, 형광펜, 사각형, 화살표, 텍스트, 모자이크 + 색상/굵기 + Undo/Redo)
+          // 2단: 마크업 편집 도구 + 색상/굵기 + Undo/Redo
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -284,8 +284,8 @@ class TopToolbar extends StatelessWidget {
                   icon: Icons.title_rounded,
                 ),
                 _buildToolChip(
-                  tool: AnnotationTool.mosaic,
-                  icon: Icons.blur_on_rounded,
+                  tool: AnnotationTool.redaction,
+                  icon: Icons.shield_rounded,
                 ),
                 _buildVerticalDivider(),
                 for (final color in paletteColors)

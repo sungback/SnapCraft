@@ -20,7 +20,7 @@ class ExportService {
     'snap_craft/clipboard',
   );
 
-  /// 원본 이미지와 모든 마크업(모자이크 포함)을 지정된 Canvas에 렌더링합니다.
+  /// 원본 이미지와 모든 마크업(보안 가림 포함)을 지정된 Canvas에 렌더링합니다.
   /// 화면 캔버스(CustomPainter)와 최종 PNG 내보내기 양쪽에서 동일하게 사용됩니다.
   static void paintCaptureScene({
     required Canvas canvas,
@@ -44,12 +44,9 @@ class ExportService {
 
     final allItems = <AnnotationItem>[...annotations, ?activeAnnotation];
 
-    // 2. 모자이크/블러 레이어 먼저 적용 (그 위에 펜/텍스트를 올릴 수 있도록 순서대로 처리하되 각 아이템별 렌더링)
+    // 2. 일반 주석은 추가한 순서대로 렌더링합니다.
     for (final item in allItems) {
       switch (item.tool) {
-        case AnnotationTool.mosaic:
-          _drawMosaic(canvas, image, imageRect, item);
-          break;
         case AnnotationTool.pen:
           _drawFreehand(canvas, item, isHighlighter: false);
           break;
@@ -65,65 +62,33 @@ class ExportService {
         case AnnotationTool.text:
           _drawText(canvas, item);
           break;
+        case AnnotationTool.redaction:
+          // Apply last so the mask remains opaque above all other annotations.
+          break;
       }
     }
-  }
 
-  static void _drawMosaic(
-    Canvas canvas,
-    ui.Image image,
-    Rect imageRect,
-    AnnotationItem item,
-  ) {
-    final rect = item.boundingRect.intersect(imageRect);
-    if (rect.width < 2 || rect.height < 2) return;
-
-    canvas.save();
-    canvas.clipRect(rect);
-
-    // 강한 가우시안 블러 + 모자이크 블록 격자 패턴 결합으로 민감 정보 완벽 차폐
-    final blurSigma = (item.strokeWidth * 2.4).clamp(10.0, 28.0);
-    canvas.saveLayer(
-      rect,
-      Paint()
-        ..imageFilter = ui.ImageFilter.blur(
-          sigmaX: blurSigma,
-          sigmaY: blurSigma,
-          tileMode: TileMode.clamp,
-        ),
-    );
-    canvas.drawImage(image, Offset.zero, Paint());
-    canvas.restore();
-
-    // 모자이크 타일 격자 질감 표현
-    final blockSize = (item.strokeWidth * 2.5).clamp(10.0, 24.0);
-    final lightPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
-      ..style = PaintingStyle.fill;
-    final darkPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.08)
-      ..style = PaintingStyle.fill;
-
-    int row = 0;
-    for (double y = rect.top; y < rect.bottom; y += blockSize) {
-      int col = 0;
-      for (double x = rect.left; x < rect.right; x += blockSize) {
-        final cellRect = Rect.fromLTWH(
-          x,
-          y,
-          math.min(blockSize, rect.right - x),
-          math.min(blockSize, rect.bottom - y),
-        );
-        canvas.drawRect(
-          cellRect,
-          ((row + col) % 2 == 0) ? lightPaint : darkPaint,
-        );
-        col++;
-      }
-      row++;
+    // 3. 보안 가림은 항상 마지막에 적용하여 다른 주석이 원본을 다시 드러내지 못하게 합니다.
+    for (final item in allItems) {
+      if (item.tool != AnnotationTool.redaction) continue;
+      final rect = item.boundingRect.intersect(imageRect);
+      if (rect.isEmpty) continue;
+      // Cover every touched source pixel, including fractional drag boundaries.
+      final pixelRect = Rect.fromLTRB(
+        rect.left.floorToDouble(),
+        rect.top.floorToDouble(),
+        rect.right.ceilToDouble(),
+        rect.bottom.ceilToDouble(),
+      );
+      canvas.drawRect(
+        pixelRect,
+        Paint()
+          ..color = Colors.black
+          ..style = PaintingStyle.fill
+          ..isAntiAlias = false
+          ..blendMode = BlendMode.src,
+      );
     }
-
-    canvas.restore();
   }
 
   static void _drawFreehand(
@@ -305,29 +270,57 @@ class ExportService {
     }
   }
 
+  int _clipboardRequest = 0;
+  Future<void>? _clipboardWrites;
+
   /// 마크업이 반영된 최종 이미지를 시스템 클립보드에 복사합니다.
+  /// 최신 요청만 기록하고 네이티브 쓰기는 직렬화합니다.
+  /// [shouldCopy]가 false이면 대기 중인 요청을 취소합니다.
   /// macOS에서는 이미지(PNG/TIFF)와 임시 파일 경로(fileURL/string)를 동시에 등록하여
   /// 일반 메신저/Claude Code(이미지 붙여넣기)와 터미널 CLI(agy 등 경로 붙여넣기) 모두에서 작동합니다.
-  Future<bool> copyToClipboard(CaptureItem item) async {
+  Future<bool> copyToClipboard(
+    CaptureItem item, {
+    bool Function()? shouldCopy,
+  }) async {
+    final request = ++_clipboardRequest;
+    bool isCurrent() =>
+        request == _clipboardRequest && (shouldCopy?.call() ?? true);
     try {
+      // Snapshot and clone synchronously, before edits or disposal can occur.
       final pngBytes = await renderAnnotatedPng(item);
-      if (Platform.isMacOS) {
-        final temp = await getTemporaryDirectory();
-        final folder = Directory('${temp.path}/snap_craft_clipboard');
-        await folder.create(recursive: true);
-        final clipboardFile = File(
-          '${folder.path}/clipboard_${DateTime.now().microsecondsSinceEpoch}.png',
-        );
-        await clipboardFile.writeAsBytes(pngBytes, flush: true);
-        final ok = await _macClipboardChannel.invokeMethod<bool>(
-          'copyImageAndFile',
-          {'bytes': pngBytes, 'path': clipboardFile.path},
-        );
-        return ok ?? true;
+      if (!isCurrent()) return false;
+      final previousWrite = _clipboardWrites;
+      Future<bool> writeLatest() async {
+        if (previousWrite != null) await previousWrite;
+        if (!isCurrent()) return false;
+        if (Platform.isMacOS) {
+          final temp = await getTemporaryDirectory();
+          final folder = Directory('${temp.path}/snap_craft_clipboard');
+          await folder.create(recursive: true);
+          if (!isCurrent()) return false;
+          final clipboardFile = File(
+            '${folder.path}/clipboard_${DateTime.now().microsecondsSinceEpoch}.png',
+          );
+          await clipboardFile.writeAsBytes(pngBytes, flush: true);
+          if (!isCurrent()) {
+            await clipboardFile.delete();
+            return false;
+          }
+          final ok = await _macClipboardChannel.invokeMethod<bool>(
+            'copyImageAndFile',
+            {'bytes': pngBytes, 'path': clipboardFile.path},
+          );
+          return ok ?? true;
+        }
+
+        await Pasteboard.writeImage(pngBytes);
+        return true;
       }
 
-      await Pasteboard.writeImage(pngBytes);
-      return true;
+      final write = writeLatest();
+      // A failed write must not poison the queue for subsequent requests.
+      _clipboardWrites = write.then<void>((_) {}, onError: (Object _) {});
+      return await write;
     } catch (_) {
       return false;
     }

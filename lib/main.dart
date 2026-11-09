@@ -110,6 +110,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   }
 
   CaptureItem? _selectedItem;
+  int _clipboardRequest = 0;
 
   AnnotationTool _selectedTool = AnnotationTool.pen;
   Color _selectedColor = TopToolbar.paletteColors.first;
@@ -134,6 +135,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   @override
   void dispose() {
+    _clipboardRequest++;
     windowManager.removeListener(this);
     for (final item in _history) {
       _releaseCapture(item);
@@ -194,6 +196,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   Future<void> _triggerCapture(CaptureMode mode) async {
     if (_isCapturing) return;
+    _clipboardRequest++;
 
     setState(() {
       _isCapturing = true;
@@ -242,11 +245,15 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       current.redoStack.clear();
       _statusMessage = '${annotation.tool.label} 주석이 추가되었습니다.';
     });
+    if (annotation.tool == AnnotationTool.redaction) {
+      unawaited(_copyToClipboard(automatic: true));
+    }
   }
 
   void _undo() {
     final current = _selectedItem;
     if (current == null || current.annotations.isEmpty) return;
+    _clipboardRequest++;
     setState(() {
       final last = current.annotations.removeLast();
       current.redoStack.add(last);
@@ -257,6 +264,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   void _redo() {
     final current = _selectedItem;
     if (current == null || current.redoStack.isEmpty) return;
+    _clipboardRequest++;
     setState(() {
       final restored = current.redoStack.removeLast();
       current.annotations.add(restored);
@@ -267,6 +275,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   void _clearAnnotations() {
     final current = _selectedItem;
     if (current == null || current.annotations.isEmpty) return;
+    _clipboardRequest++;
     setState(() {
       current.annotations.clear();
       current.redoStack.clear();
@@ -274,22 +283,34 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     });
   }
 
-  Future<void> _copyToClipboard() async {
+  Future<void> _copyToClipboard({bool automatic = false}) async {
     final current = _selectedItem;
     if (current == null) return;
+    final request = ++_clipboardRequest;
+    bool isCurrent() =>
+        mounted && request == _clipboardRequest && _selectedItem == current;
 
     setState(() {
-      _statusMessage = '클립보드에 이미지 복사 중...';
+      _statusMessage = automatic
+          ? '보안 가림 이미지를 클립보드에 자동 복사 중...'
+          : '클립보드에 이미지 복사 중...';
     });
 
-    final ok = await ExportService.instance.copyToClipboard(current);
-    if (!mounted) return;
+    final ok = await ExportService.instance.copyToClipboard(
+      current,
+      shouldCopy: isCurrent,
+    );
+    if (!mounted || !isCurrent()) return;
 
     setState(() {
-      _statusMessage = ok ? '마크업이 반영된 이미지를 클립보드에 복사했습니다!' : '클립보드 복사에 실패했습니다.';
+      _statusMessage = automatic
+          ? (ok
+                ? '보안 가림이 반영된 이미지를 클립보드에 자동 복사했습니다.'
+                : '보안 가림 이미지 자동 복사에 실패했습니다. 복사 버튼으로 다시 시도하세요.')
+          : (ok ? '마크업이 반영된 이미지를 클립보드에 복사했습니다!' : '클립보드 복사에 실패했습니다.');
     });
 
-    if (ok) {
+    if (ok && !automatic) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('클립보드에 복사되었습니다 (Cmd/Ctrl + V로 붙여넣기 가능)'),
@@ -387,6 +408,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   }
 
   void _deleteCaptureItem(CaptureItem item) {
+    _clipboardRequest++;
     setState(() {
       final idx = _history.indexWhere((e) => e.id == item.id);
       _history.removeWhere((e) => e.id == item.id);
@@ -490,8 +512,10 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                     HistorySidebar(
                       items: _history,
                       selectedItem: current,
-                      onSelectItem: (item) =>
-                          setState(() => _selectedItem = item),
+                      onSelectItem: (item) {
+                        _clipboardRequest++;
+                        setState(() => _selectedItem = item);
+                      },
                       onDeleteItem: _deleteCaptureItem,
                     ),
                     Expanded(
@@ -558,7 +582,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
               ),
               const SizedBox(height: 8),
               const Text(
-                '캡쳐 즉시 클립보드에 자동 복사되며, 펜·형광펜·사각형·화살표·텍스트·모자이크로\n빠르게 마크업한 뒤 재복사하거나 PNG 파일로 저장할 수 있습니다.',
+                '캡쳐 즉시 클립보드에 자동 복사되며, 펜·형광펜·사각형·화살표·텍스트·보안 가림으로\n빠르게 마크업한 뒤 재복사하거나 PNG 파일로 저장할 수 있습니다.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13.5,

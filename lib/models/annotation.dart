@@ -7,7 +7,7 @@ enum AnnotationTool {
   rectangle('사각형', '사각형 테두리 박스'),
   arrow('화살표', '방향 지시 화살표'),
   text('텍스트', '클릭한 위치에 텍스트 삽입'),
-  mosaic('모자이크', '민감 정보 블러/픽셀화 가리기');
+  redaction('보안 가림', '드래그한 영역을 불투명 검정색으로 가리고 자동 복사 (색상·굵기 무관)');
 
   final String label;
   final String tooltip;
@@ -51,7 +51,7 @@ class AnnotationItem {
     );
   }
 
-  /// 사각형/모자이크용 시작점~끝점 Rect 반환
+  /// 사각형/보안 가림용 시작점~끝점 Rect 반환
   Rect get boundingRect {
     if (points.isEmpty) return Rect.zero;
     if (points.length == 1) {

@@ -12,6 +12,7 @@ void main() {
     VoidCallback? onChoose,
     VoidCallback? onClear,
     VoidCallback? onSaveAs,
+    ValueChanged<AnnotationTool>? onSelectTool,
   }) async {
     await tester.binding.setSurfaceSize(const Size(880, 780));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -27,7 +28,7 @@ void main() {
             canUndo: false,
             canRedo: false,
             onTriggerCapture: (_) {},
-            onSelectTool: (_) {},
+            onSelectTool: onSelectTool ?? (_) {},
             onSelectColor: (_) {},
             onSelectStrokeWidth: (_) {},
             onUndo: () {},
@@ -90,6 +91,25 @@ void main() {
     await tester.tap(find.text('저장 폴더 지정…'));
     await tester.pumpAndSettle();
     expect(choices, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('security redaction tool is selectable at minimum width', (
+    tester,
+  ) async {
+    AnnotationTool? selected;
+    await pumpToolbar(
+      tester,
+      hasCapture: true,
+      onSelectTool: (tool) => selected = tool,
+    );
+    expect(find.text('모자이크'), findsNothing);
+    expect(find.byIcon(Icons.blur_on_rounded), findsNothing);
+    expect(find.text('보안 가림'), findsOneWidget);
+    await tester.ensureVisible(find.text('보안 가림'));
+    await tester.tap(find.text('보안 가림'));
+    await tester.pumpAndSettle();
+    expect(selected, AnnotationTool.redaction);
     expect(tester.takeException(), isNull);
   });
 
