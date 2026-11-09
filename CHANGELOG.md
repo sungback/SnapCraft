@@ -2,6 +2,9 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.11
+- macOS Ad-hoc 서명에 identifier 기반 designated requirement 적용: 업데이트마다 화면 기록 권한 팝업이 반복되던 문제 수정
+
 ## v1.0.10
 - v1.0.9 macOS 빌드가 실행 직후 종료(HotKey.framework 라이브러리 검증 실패)되는 문제 수정: Ad-hoc 서명에서 hardened runtime 제거
 

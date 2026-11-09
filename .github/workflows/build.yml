@@ -68,12 +68,19 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
-          # Ad-hoc 서명에서는 hardened runtime(--options runtime)을 쓰면 라이브러리 검증이 실패해 실행 시 크래시합니다.
-          # 개발자 인증서 없이 배포합니다. Ad-hoc 서명이므로 업데이트 시 화면 기록 권한이 다시 요청될 수 있습니다.
+          # 개발자 인증서 없이 배포하는 Ad-hoc 서명입니다.
+          # - hardened runtime(--options runtime)은 라이브러리 검증 실패로 실행 시 크래시하므로 쓰지 않습니다.
+          # - 기본 Ad-hoc designated requirement는 cdhash라 빌드마다 화면 기록 권한(TCC)이 풀립니다.
+          #   identifier 기반 requirement를 지정해 업데이트 후에도 권한이 유지되게 합니다.
+          # - 내부 프레임워크를 먼저 개별 서명한 뒤 앱 본체에 requirement를 지정합니다(--deep 사용 시 중첩 코드 검증 실패).
           APP_PATH="build/macos/Build/Products/Release/snap_craft.app"
-          codesign --force --deep --entitlements macos/Runner/Release.entitlements --sign - "$APP_PATH"
+          for f in "$APP_PATH"/Contents/Frameworks/*; do
+            codesign --force --sign - "$f"
+          done
+          codesign --force --entitlements macos/Runner/Release.entitlements \
+            -r='designated => identifier "com.example.snapCraft"' --sign - "$APP_PATH"
           codesign --verify --deep --strict "$APP_PATH"
-          codesign -dv "$APP_PATH"
+          codesign -dr - "$APP_PATH"
 
       - name: Package macOS .zip and .dmg
         if: github.event_name != 'pull_request'

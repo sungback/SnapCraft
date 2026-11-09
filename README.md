@@ -94,7 +94,7 @@ flutter build windows --release
 
 CI는 개발자 인증서나 Secrets 없이 macOS 앱을 Ad-hoc 서명(`codesign --sign -`)으로 빌드·배포합니다. 앱 내 자동 업데이트는 직접 내려받으므로 Gatekeeper 격리 속성이 붙지 않아 별도 인증서 없이 동작하며, 서명 구조(`codesign --verify --deep --strict`)만 검증합니다.
 
-- Ad-hoc 서명은 빌드마다 `cdhash`가 바뀌므로 업데이트 후 macOS 화면 기록 권한이 다시 요청될 수 있습니다.
+- Ad-hoc 서명의 기본 요구사항은 빌드마다 바뀌는 `cdhash`라 권한이 풀리므로, CI는 `designated => identifier "com.example.snapCraft"`를 지정해 서명합니다. v1.0.10 이하에서 올라온 경우 권한을 한 번 다시 부여해야 합니다(`tccutil reset ScreenCapture com.example.snapCraft`).
 - 업데이트를 설치하는 Mac의 키체인에 `Developer ID Application` 또는 `Apple Development` 인증서가 있으면 설치 전에 자동 재서명하여 권한을 유지합니다.
 - 브라우저로 내려받은 DMG/ZIP은 첫 실행 시 Gatekeeper 경고가 나타날 수 있습니다(우클릭 → 열기). 공증(notarization)은 포함하지 않습니다.
 
