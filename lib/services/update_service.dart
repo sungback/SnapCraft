@@ -17,6 +17,9 @@ class ReleaseInfo {
   final int assetSize;
   final bool hasUpdate;
 
+  /// 릴리즈의 SHA256SUMS.txt 에셋 URL. 없으면 자동 설치를 거부한다.
+  final String? checksumUrl;
+
   const ReleaseInfo({
     required this.currentVersion,
     required this.latestVersion,
@@ -28,6 +31,7 @@ class ReleaseInfo {
     required this.assetName,
     required this.assetSize,
     required this.hasUpdate,
+    this.checksumUrl,
   });
 }
 
@@ -38,6 +42,7 @@ class UpdateService {
   static const String githubOwner = 'sungback';
   static const String githubRepo = 'SnapCraft';
   static const String defaultVersion = '1.0.0';
+  static const String checksumAssetName = 'SHA256SUMS.txt';
 
   bool _isInstalling = false;
   String? _cachedCurrentVersion;
@@ -196,8 +201,18 @@ class UpdateService {
         }
       }
 
+      String? checksumUrl;
+      for (final raw in assets) {
+        final asset = raw as Map<String, dynamic>;
+        if ((asset['name'] as String?) == checksumAssetName) {
+          checksumUrl = asset['browser_download_url'] as String?;
+          break;
+        }
+      }
+
       final hasUpdate = isNewerVersion(currentVer, latestVer);
       final info = ReleaseInfo(
+        checksumUrl: checksumUrl,
         currentVersion: currentVer,
         latestVersion: latestVer,
         tagName: tagName,
@@ -266,6 +281,11 @@ class UpdateService {
       },
     );
 
+    if (Platform.isMacOS || Platform.isWindows) {
+      onProgress(0.82, '다운로드한 파일의 무결성(SHA256) 확인 중...');
+      await _verifyChecksum(release, archivePath, assetName);
+    }
+
     if (Platform.isMacOS) {
       await _installOnMacOS(
         archivePath: archivePath,
@@ -329,6 +349,79 @@ class UpdateService {
     }
   }
 
+  /// 릴리즈의 SHA256SUMS.txt와 내려받은 파일의 해시를 비교한다. 체크섬이 없으면 설치하지 않는다.
+  Future<void> _verifyChecksum(
+    ReleaseInfo release,
+    String archivePath,
+    String assetName,
+  ) async {
+    final checksumUrl = release.checksumUrl;
+    if (checksumUrl == null) {
+      await File(archivePath).delete();
+      throw const FormatException('릴리즈에 $checksumAssetName가 없어 자동 설치를 중단했습니다.');
+    }
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
+    final String sums;
+    try {
+      final request = await client.getUrl(Uri.parse(checksumUrl));
+      request.headers.set(HttpHeaders.userAgentHeader, 'SnapCraft-Updater');
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        throw HttpException('체크섬 다운로드 실패 (HTTP ${response.statusCode})');
+      }
+      sums = await response.transform(utf8.decoder).join();
+    } finally {
+      client.close();
+    }
+
+    final expected = parseChecksum(sums, assetName);
+    if (expected == null) {
+      await File(archivePath).delete();
+      throw FormatException('$checksumAssetName에 $assetName 항목이 없습니다.');
+    }
+    final actual = await _sha256Of(archivePath);
+    if (actual != expected) {
+      await File(archivePath).delete();
+      throw const FormatException('업데이트 파일의 SHA256이 일치하지 않아 설치를 중단했습니다.');
+    }
+  }
+
+  Future<String> _sha256Of(String path) async {
+    final ProcessResult result;
+    if (Platform.isWindows) {
+      result = await Process.run('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "(Get-FileHash -Algorithm SHA256 -LiteralPath '${path.replaceAll("'", "''")}').Hash",
+      ]);
+    } else {
+      result = await Process.run('/usr/bin/shasum', ['-a', '256', path]);
+    }
+    if (result.exitCode != 0) {
+      throw Exception('SHA256 계산 실패: ${result.stderr}');
+    }
+    return result.stdout
+        .toString()
+        .trim()
+        .split(RegExp(r'\s+'))
+        .first
+        .toLowerCase();
+  }
+
+  /// `sha256sum` 형식("<해시>  <파일명>")에서 파일의 해시를 소문자로 반환한다. 없으면 null.
+  static String? parseChecksum(String sums, String assetName) {
+    for (final line in const LineSplitter().convert(sums)) {
+      final match = RegExp(r'^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$')
+          .firstMatch(line);
+      if (match != null && match.group(2) == assetName) {
+        return match.group(1)!.toLowerCase();
+      }
+    }
+    return null;
+  }
+
   Future<void> _installOnMacOS({
     required String archivePath,
     required Directory updateDir,
@@ -371,6 +464,7 @@ class UpdateService {
       throw const FormatException('앱 실행 파일이 없는 업데이트입니다.');
     }
     await _verifyMacSignature(newAppBundle.path);
+    await _verifySameTeam(newAppBundle.path);
 
     // 로컬 키체인에 개발자 인증서가 있으면 TCC(화면 기록 권한) 유지를 위해 재서명 (없으면 배포본의 Ad-hoc 서명 유지)
     onProgress(0.91, '화면 기록 권한(TCC) 유지를 위해 인증서 서명 확인 중...');
@@ -503,6 +597,45 @@ class UpdateService {
     if (result.exitCode != 0) {
       throw Exception('손상되었거나 서명이 유효하지 않은 업데이트입니다: ${result.stderr}');
     }
+  }
+
+  /// 새 앱의 서명 팀이 현재 실행 중인 앱과 같은지 확인한다. 다른 인증서로 서명된 앱은 거부한다.
+  /// 현재 앱이 .app 번들이 아니면(개발 환경) 설치하지 않으므로 검사하지 않는다.
+  Future<void> _verifySameTeam(String newAppPath) async {
+    final currentAppDir = File(Platform.resolvedExecutable)
+        .parent
+        .parent
+        .parent;
+    if (!currentAppDir.path.endsWith('.app')) return;
+
+    final current = await _teamIdentifier(currentAppDir.path);
+    if (current == null) {
+      throw const FormatException(
+        '현재 앱에 팀 서명이 없어 업데이트 출처를 확인할 수 없습니다. 릴리즈 페이지에서 직접 설치하세요.',
+      );
+    }
+    final next = await _teamIdentifier(newAppPath);
+    if (next != current) {
+      throw const FormatException('업데이트 앱의 서명 팀이 현재 앱과 달라 설치를 중단했습니다.');
+    }
+  }
+
+  Future<String?> _teamIdentifier(String appPath) async {
+    final result = await Process.run('/usr/bin/codesign', [
+      '-dv',
+      '--verbose=2',
+      appPath,
+    ]);
+    // codesign은 상세 정보를 stderr로 출력한다.
+    return parseTeamIdentifier('${result.stderr}');
+  }
+
+  /// `codesign -dv` 출력에서 TeamIdentifier를 꺼낸다. ad-hoc("not set")이면 null.
+  static String? parseTeamIdentifier(String output) {
+    return RegExp(
+      r'^TeamIdentifier=(?!not set)(\S+)',
+      multiLine: true,
+    ).firstMatch(output)?.group(1);
   }
 
   Future<void> _installOnWindows({
