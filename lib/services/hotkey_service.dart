@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
@@ -59,7 +60,12 @@ class HotkeyService {
     _hotKeys[CaptureMode.window] =
         _loadHotKey(prefs, _prefKeyWindow) ?? defaultWindowHotKey;
 
-    await _registerAll();
+    try {
+      await _registerAll();
+    } on StateError catch (error) {
+      // 일부 OS/권한 환경에서 등록이 실패해도 앱은 계속 실행한다.
+      debugPrint('$error');
+    }
   }
 
   HotKey? _loadHotKey(SharedPreferences prefs, String key) {
@@ -86,8 +92,9 @@ class HotkeyService {
           },
         );
       }
-    } catch (_) {
-      // 일부 OS/권한 환경에서 단축키 등록 실패 시 앱 크래시 방지
+    } catch (error) {
+      // 호출부가 사용자에게 알릴 수 있도록 다시 던진다. 시작 시에는 initialize가 삼킨다.
+      throw StateError('단축키를 등록하지 못했습니다: $error');
     }
   }
 

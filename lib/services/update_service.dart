@@ -47,6 +47,7 @@ class UpdateService {
 
   bool _isInstalling = false;
   String? _cachedCurrentVersion;
+  bool _versionDetected = true;
   ReleaseInfo? _latestReleaseInfo;
   ReleaseInfo? get latestReleaseInfo => _latestReleaseInfo;
 
@@ -99,6 +100,8 @@ class UpdateService {
       }
     } catch (_) {}
 
+    // 버전을 알 수 없으면 모든 릴리즈가 새 버전으로 보이므로 업데이트 판단을 막는다.
+    _versionDetected = false;
     _cachedCurrentVersion = defaultVersion;
     return _cachedCurrentVersion!;
   }
@@ -211,7 +214,8 @@ class UpdateService {
         }
       }
 
-      final hasUpdate = isNewerVersion(currentVer, latestVer);
+      final hasUpdate =
+          _versionDetected && isNewerVersion(currentVer, latestVer);
       final info = ReleaseInfo(
         checksumUrl: checksumUrl,
         currentVersion: currentVer,
@@ -255,7 +259,7 @@ class UpdateService {
     final downloadUrl = release.downloadUrl;
     final assetName = release.assetName;
     if (downloadUrl == null || assetName == null) {
-      await openUrl(release.htmlUrl);
+      await _openReleasePage(release);
       return;
     }
 
@@ -300,7 +304,13 @@ class UpdateService {
         onProgress: onProgress,
       );
     } else {
-      await openUrl(release.htmlUrl);
+      await _openReleasePage(release);
+    }
+  }
+
+  Future<void> _openReleasePage(ReleaseInfo release) async {
+    if (!await openUrl(release.htmlUrl)) {
+      throw StateError('브라우저를 열지 못했습니다. 직접 접속하세요: ${release.htmlUrl}');
     }
   }
 
@@ -423,17 +433,23 @@ class UpdateService {
     return null;
   }
 
-  /// 브라우저로 지정된 URL을 엽니다.
-  Future<void> openUrl(String url) async {
+  /// 브라우저로 지정된 URL을 엽니다. 열지 못하면 false를 반환합니다.
+  Future<bool> openUrl(String url) async {
     try {
+      final ProcessResult result;
       if (Platform.isMacOS) {
-        await Process.run('open', [url]);
+        result = await Process.run('open', [url]);
       } else if (Platform.isWindows) {
-        await Process.run('cmd', ['/c', 'start', '', url]);
+        result = await Process.run('cmd', ['/c', 'start', '', url]);
       } else if (Platform.isLinux) {
-        await Process.run('xdg-open', [url]);
+        result = await Process.run('xdg-open', [url]);
+      } else {
+        return false;
       }
-    } catch (_) {}
+      return result.exitCode == 0;
+    } on ProcessException {
+      return false;
+    }
   }
 
   /// 두 시맨틱 버전 문자열(예: 1.0.0 vs 1.0.1)을 비교하여 latest가 더 최신이면 true를 반환합니다.
