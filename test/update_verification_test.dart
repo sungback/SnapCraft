@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:snap_craft/services/update_installer_macos.dart';
 import 'package:snap_craft/services/update_service.dart';
 
 void main() {
@@ -44,7 +45,7 @@ void main() {
   group('parseTeamIdentifier', () {
     test('reads the team id', () {
       expect(
-        UpdateService.parseTeamIdentifier(
+        MacUpdateInstaller.parseTeamIdentifier(
           'Identifier=a.b\nTeamIdentifier=ABCDE12345\n',
         ),
         'ABCDE12345',
@@ -53,10 +54,13 @@ void main() {
 
     test('treats ad-hoc "not set" and missing as no team', () {
       expect(
-        UpdateService.parseTeamIdentifier('TeamIdentifier=not set\n'),
+        MacUpdateInstaller.parseTeamIdentifier('TeamIdentifier=not set\n'),
         isNull,
       );
-      expect(UpdateService.parseTeamIdentifier('Signature=adhoc\n'), isNull);
+      expect(
+        MacUpdateInstaller.parseTeamIdentifier('Signature=adhoc\n'),
+        isNull,
+      );
     });
   });
 }

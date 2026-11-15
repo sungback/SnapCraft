@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
+
 import '../services/hotkey_service.dart';
 
 class ShortcutSettingsDialog extends StatefulWidget {
   final VoidCallback onShortcutsUpdated;
 
-  const ShortcutSettingsDialog({
-    super.key,
-    required this.onShortcutsUpdated,
-  });
+  const ShortcutSettingsDialog({super.key, required this.onShortcutsUpdated});
 
   @override
   State<ShortcutSettingsDialog> createState() => _ShortcutSettingsDialogState();
@@ -19,6 +17,7 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
   final HotkeyService _hotkeyService = HotkeyService.instance;
   CaptureMode? _recordingMode;
   HotKey? _recordedHotKey;
+  String? _errorMessage;
 
   Future<void> _startRecording(CaptureMode mode) async {
     setState(() {
@@ -30,23 +29,38 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
   Future<void> _saveRecordedHotKey() async {
     final mode = _recordingMode;
     final hotKey = _recordedHotKey;
+    String? error;
     if (mode != null && hotKey != null) {
-      await _hotkeyService.updateHotKey(mode, hotKey);
-      widget.onShortcutsUpdated();
+      error = await _apply(() => _hotkeyService.updateHotKey(mode, hotKey));
     }
+    if (!mounted) return;
     setState(() {
+      _errorMessage = error;
       _recordingMode = null;
       _recordedHotKey = null;
     });
   }
 
   Future<void> _resetDefaults() async {
-    await _hotkeyService.resetToDefaults();
-    widget.onShortcutsUpdated();
+    final error = await _apply(_hotkeyService.resetToDefaults);
+    if (!mounted) return;
     setState(() {
+      _errorMessage = error;
       _recordingMode = null;
       _recordedHotKey = null;
     });
+  }
+
+  /// 단축키 변경을 적용하고, 등록 실패 시 사용자에게 보여줄 메시지를 반환한다.
+  Future<String?> _apply(Future<void> Function() change) async {
+    try {
+      await change();
+      widget.onShortcutsUpdated();
+      return null;
+    } on StateError catch (error) {
+      widget.onShortcutsUpdated();
+      return error.message;
+    }
   }
 
   @override
@@ -94,6 +108,13 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
               subtitle: '특정 실행 중인 창 선택 캡쳐',
               icon: Icons.web_asset_rounded,
             ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                style: const TextStyle(fontSize: 12.5, color: Colors.redAccent),
+              ),
+            ],
             if (_recordingMode != null) ...[
               const SizedBox(height: 16),
               Container(
@@ -201,10 +222,7 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Colors.white54,
-                  ),
+                  style: const TextStyle(fontSize: 11.5, color: Colors.white54),
                 ),
               ],
             ),
