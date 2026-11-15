@@ -193,6 +193,11 @@ jobs:
           path: release_assets
           merge-multiple: true
 
+      - name: Generate SHA256SUMS.txt
+        if: steps.check_release.outputs.should_release == 'true'
+        working-directory: release_assets
+        run: sha256sum SnapCraft-macOS.dmg SnapCraft-macOS.zip SnapCraft-Windows-x64.zip > SHA256SUMS.txt
+
       - name: Create GitHub Release with macOS & Windows installers
         if: steps.check_release.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
@@ -204,3 +209,4 @@ jobs:
             release_assets/SnapCraft-macOS.dmg
             release_assets/SnapCraft-macOS.zip
             release_assets/SnapCraft-Windows-x64.zip
+            release_assets/SHA256SUMS.txt
