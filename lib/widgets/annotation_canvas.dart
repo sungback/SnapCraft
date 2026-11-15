@@ -1,5 +1,7 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+
 import '../models/annotation.dart';
 import '../models/capture_item.dart';
 import '../services/export_service.dart';
@@ -28,10 +30,14 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
   AnnotationItem? _activeDraft;
 
   Offset _toImageCoordinates(Offset localPosition, double scale) {
-    final x = (localPosition.dx / scale)
-        .clamp(0.0, widget.captureItem.width.toDouble());
-    final y = (localPosition.dy / scale)
-        .clamp(0.0, widget.captureItem.height.toDouble());
+    final x = (localPosition.dx / scale).clamp(
+      0.0,
+      widget.captureItem.width.toDouble(),
+    );
+    final y = (localPosition.dy / scale).clamp(
+      0.0,
+      widget.captureItem.height.toDouble(),
+    );
     return Offset(x, y);
   }
 

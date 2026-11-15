@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
@@ -21,31 +22,31 @@ class HotkeyService {
   Map<CaptureMode, HotKey> get hotKeys => Map.unmodifiable(_hotKeys);
 
   HotKey get defaultRegionHotKey => HotKey(
-        key: PhysicalKeyboardKey.keyA,
-        modifiers: [
-          Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
-          HotKeyModifier.shift,
-        ],
-        scope: HotKeyScope.system,
-      );
+    key: PhysicalKeyboardKey.keyA,
+    modifiers: [
+      Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
+      HotKeyModifier.shift,
+    ],
+    scope: HotKeyScope.system,
+  );
 
   HotKey get defaultScreenHotKey => HotKey(
-        key: PhysicalKeyboardKey.keyS,
-        modifiers: [
-          Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
-          HotKeyModifier.shift,
-        ],
-        scope: HotKeyScope.system,
-      );
+    key: PhysicalKeyboardKey.keyS,
+    modifiers: [
+      Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
+      HotKeyModifier.shift,
+    ],
+    scope: HotKeyScope.system,
+  );
 
   HotKey get defaultWindowHotKey => HotKey(
-        key: PhysicalKeyboardKey.keyW,
-        modifiers: [
-          Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
-          HotKeyModifier.shift,
-        ],
-        scope: HotKeyScope.system,
-      );
+    key: PhysicalKeyboardKey.keyW,
+    modifiers: [
+      Platform.isMacOS ? HotKeyModifier.meta : HotKeyModifier.control,
+      HotKeyModifier.shift,
+    ],
+    scope: HotKeyScope.system,
+  );
 
   Future<void> initialize(CaptureModeCallback onTriggered) async {
     _onTriggered = onTriggered;

@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
+
 import '../services/hotkey_service.dart';
 
 class ShortcutSettingsDialog extends StatefulWidget {
   final VoidCallback onShortcutsUpdated;
 
-  const ShortcutSettingsDialog({
-    super.key,
-    required this.onShortcutsUpdated,
-  });
+  const ShortcutSettingsDialog({super.key, required this.onShortcutsUpdated});
 
   @override
   State<ShortcutSettingsDialog> createState() => _ShortcutSettingsDialogState();
@@ -201,10 +199,7 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Colors.white54,
-                  ),
+                  style: const TextStyle(fontSize: 11.5, color: Colors.white54),
                 ),
               ],
             ),
