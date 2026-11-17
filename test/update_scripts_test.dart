@@ -101,24 +101,25 @@ void main() {
         }
       }
     });
-    Future<ProcessResult> install() => Process.run('powershell', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      script.path,
-      '-Target',
-      target.path,
-      '-Source',
-      source.path,
-      '-Executable',
-      'snap_craft.exe',
-      '-AppProcessId',
-      '$exitedPid',
-      '-LogPath',
-      '${root.path}/install.log',
-    ]);
+    Future<ProcessResult> install({bool holdTarget = false}) =>
+        Process.run('powershell', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          script.path,
+          '-Target',
+          target.path,
+          '-Source',
+          source.path,
+          '-Executable',
+          'snap_craft.exe',
+          '-AppProcessId',
+          '$exitedPid',
+          '-LogPath',
+          '${root.path}/install.log',
+        ], workingDirectory: holdTarget ? target.path : null);
     test('installs complete bundle and keeps backup', () async {
       final result = await install();
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
@@ -128,6 +129,26 @@ void main() {
       );
       expect(await File('${target.path}/flutter_windows.dll').exists(), isTrue);
     });
+    test(
+      'updates while another process has the app as its working directory',
+      () async {
+        final result = await install(holdTarget: true);
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        expect(
+          await File('${target.path}/flutter_windows.dll').exists(),
+          isTrue,
+        );
+        expect(
+          await File('${target.path}.snapcraft-previous/version')
+              .readAsString(),
+          'old',
+        );
+      },
+    );
     test('incomplete package preserves original', () async {
       await File('${source.path}/flutter_windows.dll').delete();
       expect((await install()).exitCode, 1);

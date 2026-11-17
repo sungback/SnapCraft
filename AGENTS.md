@@ -19,7 +19,7 @@
 
 * **좌표계**: `AnnotationItem.points`는 화면 위젯 크기가 아닌 **원본 이미지 픽셀 좌표(`0..width`, `0..height`)**로 저장합니다. `annotation_canvas.dart`가 화면 좌표를 변환합니다.
 * **렌더링 공용화**: `export_service.dart`의 `paintCaptureScene()`은 실시간 캔버스와 PNG 내보내기가 공유합니다. 렌더링을 바꾸면 양쪽에 모두 반영됩니다.
-* **자동 업데이트**: `update_service.dart`가 GitHub Releases(`sungback/SnapCraft`)를 조회하고, macOS는 `.app` 교체 전 `_resignMacBundleForTcc`로 재서명(아래 3번 규칙), Windows는 `xcopy`로 교체합니다.
+* **자동 업데이트**: `update_service.dart`가 GitHub Releases(`sungback/SnapCraft`)를 조회하고, macOS는 `.app` 교체 전 `_resignMacBundleForTcc`로 재서명(아래 3번 규칙), Windows는 백업 후 `robocopy`로 파일을 교체합니다.
 * **Windows 창 캡쳐**: `CaptureMode.window`는 `windows/runner/flutter_window.cpp`의 네이티브 Win32 창 선택기를 사용합니다.
 
 ---

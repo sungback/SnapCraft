@@ -40,35 +40,39 @@ param(
   [int]$AppProcessId, [string]$LogPath
 )
 $ErrorActionPreference = 'Stop'
-$stage = "$Target.snapcraft-new"
 $backup = "$Target.snapcraft-previous"
 $backedUp = $false
 $canRestart = $false
+function Copy-Bundle([string]$From, [string]$To) {
+  # Robocopy retries files temporarily held by Windows or antivirus software.
+  & robocopy $From $To /E /COPY:DAT /IS /IT /R:10 /W:1 /NFL /NDL /NJH /NJS /NP
+  if ($LASTEXITCODE -ge 8) { throw "Bundle copy failed: $LASTEXITCODE" }
+}
 Start-Transcript -Path $LogPath -Append
 try {
-  if (Get-Process -Id $AppProcessId -ErrorAction SilentlyContinue) {
-    Wait-Process -Id $AppProcessId -Timeout 60 -ErrorAction Stop
+  $process = Get-Process -Id $AppProcessId -ErrorAction SilentlyContinue
+  if ($process) {
+    try { Wait-Process -InputObject $process -Timeout 60 -ErrorAction Stop }
+    catch {
+      if (Get-Process -Id $AppProcessId -ErrorAction SilentlyContinue) { throw }
+    }
   }
   $canRestart = $true
-  if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-  New-Item -ItemType Directory -Path $stage | Out-Null
-  & xcopy "$Source\*" $stage /E /Y /I /Q
-  if ($LASTEXITCODE -ne 0) { throw "Package copy failed: $LASTEXITCODE" }
   foreach ($entry in @($Executable, 'flutter_windows.dll', 'data\flutter_assets')) {
-    if (!(Test-Path -LiteralPath (Join-Path $stage $entry))) {
+    if (!(Test-Path -LiteralPath (Join-Path $Source $entry))) {
       throw "Incomplete update package: $entry"
     }
   }
   if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }
-  Move-Item -LiteralPath $Target -Destination $backup
+  Copy-Bundle $Target $backup
   $backedUp = $true
-  Move-Item -LiteralPath $stage -Destination $Target
+  Copy-Bundle $Source $Target
   Start-Process -FilePath (Join-Path $Target $Executable) -WorkingDirectory $Target
 } catch {
   Write-Output $_
   if ($backedUp) {
-    if (Test-Path -LiteralPath $Target) { Move-Item -LiteralPath $Target -Destination $stage }
-    Move-Item -LiteralPath $backup -Destination $Target
+    try { Copy-Bundle $backup $Target }
+    catch { Write-Output "Restore failed; backup retained at $backup : $_"; exit 1 }
   }
   if ($canRestart -and (Test-Path -LiteralPath (Join-Path $Target $Executable))) {
     Start-Process -FilePath (Join-Path $Target $Executable) -WorkingDirectory $Target
