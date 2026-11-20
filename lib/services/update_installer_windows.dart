@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import 'update_scripts.dart';
+import 'windows_update_process.dart';
 
 /// 내려받은 Windows 업데이트(.zip)를 풀어 설치 폴더를 교체한다.
 class WindowsUpdateInstaller {
@@ -64,9 +65,8 @@ class WindowsUpdateInstaller {
     await scriptFile.writeAsString(UpdateScripts.windows, encoding: utf8);
     final logDir = await getApplicationSupportDirectory();
     await logDir.create(recursive: true);
-    await Process.start(
-      'powershell',
-      [
+    await startWindowsUpdateProcess(
+      arguments: [
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy',
@@ -84,8 +84,7 @@ class WindowsUpdateInstaller {
         '-LogPath',
         '${logDir.path}/update-install.log',
       ],
-      mode: ProcessStartMode.detached,
-      workingDirectory: updateDir.path,
+      updateDir: updateDir,
     );
 
     exit(0);

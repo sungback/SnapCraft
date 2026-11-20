@@ -37,7 +37,7 @@ fi
   static const windows = r'''
 param(
   [string]$Target, [string]$Source, [string]$Executable,
-  [int]$AppProcessId, [string]$LogPath
+  [int]$AppProcessId, [string]$LogPath, [string]$ReadyPath
 )
 $ErrorActionPreference = 'Stop'
 $backup = "$Target.snapcraft-previous"
@@ -45,11 +45,12 @@ $backedUp = $false
 $canRestart = $false
 function Copy-Bundle([string]$From, [string]$To) {
   # Robocopy retries files temporarily held by Windows or antivirus software.
-  & robocopy $From $To /E /COPY:DAT /IS /IT /R:10 /W:1 /NFL /NDL /NJH /NJS /NP
+  & robocopy $From $To /E /COPY:DAT /IS /IT /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Bundle copy failed: $LASTEXITCODE" }
 }
-Start-Transcript -Path $LogPath -Append
 try {
+  Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) Starting update"
+  if ($ReadyPath) { [IO.File]::WriteAllText($ReadyPath, 'ready') }
   $process = Get-Process -Id $AppProcessId -ErrorAction SilentlyContinue
   if ($process) {
     try { Wait-Process -InputObject $process -Timeout 60 -ErrorAction Stop }
@@ -68,18 +69,17 @@ try {
   $backedUp = $true
   Copy-Bundle $Source $Target
   Start-Process -FilePath (Join-Path $Target $Executable) -WorkingDirectory $Target
+  Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) Update launched" -ErrorAction SilentlyContinue
 } catch {
-  Write-Output $_
+  Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) Update failed: $_" -ErrorAction SilentlyContinue
   if ($backedUp) {
     try { Copy-Bundle $backup $Target }
-    catch { Write-Output "Restore failed; backup retained at $backup : $_"; exit 1 }
+    catch { Add-Content -LiteralPath $LogPath -Value "Restore failed; backup retained at $backup : $_" -ErrorAction SilentlyContinue; exit 1 }
   }
   if ($canRestart -and (Test-Path -LiteralPath (Join-Path $Target $Executable))) {
     Start-Process -FilePath (Join-Path $Target $Executable) -WorkingDirectory $Target
   }
   exit 1
-} finally {
-  Stop-Transcript
 }
 ''';
 }

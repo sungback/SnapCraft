@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snap_craft/services/update_scripts.dart';
+import 'package:snap_craft/services/windows_update_process.dart';
 
 void main() {
   group('macOS installer transaction', () {
@@ -159,6 +160,39 @@ void main() {
           .writeAsString('invalid executable');
       expect((await install()).exitCode, 1);
       expect(await File('${target.path}/version').readAsString(), 'old');
+    });
+    test('launcher reports an installer that cannot start', () async {
+      await expectLater(
+        startWindowsUpdateProcess(
+          arguments: ['-NoProfile', '-File', '${root.path}/missing.ps1'],
+          updateDir: root,
+        ),
+        throwsStateError,
+      );
+      expect(await File('${target.path}/version').readAsString(), 'old');
+    });
+    test('installer starts and completes after its launcher exits', () async {
+      final result = await Process.run('dart', [
+        'test/fixtures/windows_update_launcher.dart',
+        root.path,
+        script.path,
+        target.path,
+        source.path,
+        '${root.path}/install.log',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      final installedFile = File('${target.path}/flutter_windows.dll');
+      final logFile = File('${root.path}/install.log');
+      var log = '';
+      for (var attempt = 0; attempt < 200; attempt++) {
+        if (await logFile.exists()) log = await logFile.readAsString();
+        if (log.contains('Update launched') || log.contains('Update failed')) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(log, contains('Update launched'));
+      expect(await installedFile.exists(), isTrue, reason: log);
     });
   }, skip: !Platform.isWindows);
 }
