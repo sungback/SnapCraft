@@ -129,7 +129,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          hasUpdate ? '새 버전이 있습니다!' : '소프트웨어 업데이트',
+                          hasUpdate ? '새 버전을 사용할 수 있습니다!' : '소프트웨어 업데이트',
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
