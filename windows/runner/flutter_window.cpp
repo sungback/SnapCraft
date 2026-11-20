@@ -3,8 +3,10 @@
 #include <atlimage.h>
 #include <dwmapi.h>
 #include <windows.h>
+#include <shellapi.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <optional>
 #include <string>
 
@@ -403,7 +405,38 @@ bool FlutterWindow::OnCreate() {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
-        if (call.method_name() == "captureWindow") {
+        if (call.method_name() == "startRegionCapture") {
+          auto result_code = reinterpret_cast<INT_PTR>(ShellExecuteW(
+              nullptr, L"open", L"ms-screenclip://?clippingMode=Rectangle",
+              nullptr, nullptr, SW_SHOWNORMAL));
+          if (result_code <= 32) {
+            result->Error("CAPTURE_LAUNCH_FAILED", "Unable to start Windows screen clipping");
+          } else {
+            result->Success();
+          }
+        } else if (call.method_name() == "regionCaptureState") {
+          HWND foreground = GetForegroundWindow();
+          DWORD process_id = 0;
+          GetWindowThreadProcessId(foreground, &process_id);
+          HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
+          wchar_t name[MAX_PATH] = {};
+          DWORD length = MAX_PATH;
+          bool active = false;
+          if (process) {
+            if (QueryFullProcessImageNameW(process, 0, name, &length)) {
+              std::wstring path(name, length);
+              std::transform(path.begin(), path.end(), path.begin(),
+                             [](wchar_t c) { return std::towlower(c); });
+              active = path.find(L"screenclippinghost.exe") != std::wstring::npos ||
+                       path.find(L"snippingtool.exe") != std::wstring::npos;
+            }
+            CloseHandle(process);
+          }
+          flutter::EncodableMap state;
+          state[flutter::EncodableValue("active")] = flutter::EncodableValue(active);
+          state[flutter::EncodableValue("image")] = flutter::EncodableValue(IsClipboardFormatAvailable(CF_BITMAP) != FALSE);
+          result->Success(flutter::EncodableValue(state));
+        } else if (call.method_name() == "captureWindow") {
           const auto* args =
               std::get_if<flutter::EncodableMap>(call.arguments());
           if (!args) {

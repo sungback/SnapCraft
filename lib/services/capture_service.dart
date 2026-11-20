@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../models/capture_item.dart';
 import 'export_service.dart';
+import 'windows_region_capture.dart';
 
 class CaptureService {
   CaptureService._();
@@ -62,7 +63,9 @@ class CaptureService {
       pendingPath = filePath;
 
       Uint8List? imageBytes;
-      if (Platform.isWindows && mode == CaptureMode.window) {
+      if (Platform.isWindows && mode == CaptureMode.region) {
+        await captureWindowsRegion(filePath);
+      } else if (Platform.isWindows && mode == CaptureMode.window) {
         // Windows에서 기본 ms-screenclip 창 모드는 다른 창에 가려진 영역이 그대로 찍히고
         // 7px 투명 테두리가 포함되는 문제가 있으므로 네이티브 Win32 창 선택/전면화 캡쳐 채널 사용
         final ok = await _windowsCaptureChannel.invokeMethod<bool>(
