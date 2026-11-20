@@ -63,7 +63,9 @@ class CaptureService {
       pendingPath = filePath;
 
       Uint8List? imageBytes;
-      if (Platform.isWindows && mode == CaptureMode.region) {
+      if (Platform.isWindows &&
+          mode == CaptureMode.region &&
+          !Platform.environment.containsKey('FLUTTER_TEST')) {
         await captureWindowsRegion(filePath);
       } else if (Platform.isWindows && mode == CaptureMode.window) {
         // Windows에서 기본 ms-screenclip 창 모드는 다른 창에 가려진 영역이 그대로 찍히고
