@@ -7,6 +7,7 @@ enum AnnotationTool {
   rectangle('사각형', '사각형 테두리 박스'),
   arrow('화살표', '방향 지시 화살표'),
   text('텍스트', '클릭한 위치에 텍스트 삽입'),
+  stepCounter('번호', '클릭한 위치에 순차적 번호(①, ②, ③) 스탬프 삽입'),
   redaction('보안 가림', '드래그한 영역을 불투명 검정색으로 가리고 자동 복사 (색상·굵기 무관)');
 
   final String label;

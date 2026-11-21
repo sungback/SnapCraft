@@ -12,6 +12,11 @@ class AnnotationCanvas extends StatefulWidget {
   final Color selectedColor;
   final double strokeWidth;
   final ValueChanged<AnnotationItem> onAddAnnotation;
+  final bool isCropping;
+  final Rect? cropRect;
+  final ValueChanged<Rect?>? onCropRectChanged;
+  final VoidCallback? onApplyCrop;
+  final VoidCallback? onCancelCrop;
 
   const AnnotationCanvas({
     super.key,
@@ -20,6 +25,11 @@ class AnnotationCanvas extends StatefulWidget {
     required this.selectedColor,
     required this.strokeWidth,
     required this.onAddAnnotation,
+    this.isCropping = false,
+    this.cropRect,
+    this.onCropRectChanged,
+    this.onApplyCrop,
+    this.onCancelCrop,
   });
 
   @override
@@ -28,6 +38,7 @@ class AnnotationCanvas extends StatefulWidget {
 
 class _AnnotationCanvasState extends State<AnnotationCanvas> {
   AnnotationItem? _activeDraft;
+  Offset? _cropStartPoint;
 
   Offset _toImageCoordinates(Offset localPosition, double scale) {
     final x = (localPosition.dx / scale).clamp(
@@ -42,7 +53,17 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
   }
 
   void _handlePanStart(DragStartDetails details, double scale) {
-    if (widget.selectedTool == AnnotationTool.text) return;
+    if (widget.isCropping) {
+      final startPt = _toImageCoordinates(details.localPosition, scale);
+      _cropStartPoint = startPt;
+      widget.onCropRectChanged?.call(Rect.fromPoints(startPt, startPt));
+      return;
+    }
+
+    if (widget.selectedTool == AnnotationTool.text ||
+        widget.selectedTool == AnnotationTool.stepCounter) {
+      return;
+    }
 
     final startPt = _toImageCoordinates(details.localPosition, scale);
     final effectiveStroke = widget.strokeWidth / scale.clamp(0.25, 1.5);
@@ -59,6 +80,14 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
   }
 
   void _handlePanUpdate(DragUpdateDetails details, double scale) {
+    if (widget.isCropping) {
+      final start = _cropStartPoint;
+      if (start == null) return;
+      final current = _toImageCoordinates(details.localPosition, scale);
+      widget.onCropRectChanged?.call(Rect.fromPoints(start, current));
+      return;
+    }
+
     final draft = _activeDraft;
     if (draft == null) return;
 
@@ -74,6 +103,11 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
   }
 
   void _handlePanEnd(DragEndDetails details) {
+    if (widget.isCropping) {
+      _cropStartPoint = null;
+      return;
+    }
+
     final draft = _activeDraft;
     if (draft == null) return;
 
@@ -87,6 +121,28 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
   }
 
   Future<void> _handleTapUp(TapUpDetails details, double scale) async {
+    if (widget.isCropping) return;
+
+    if (widget.selectedTool == AnnotationTool.stepCounter) {
+      final imagePt = _toImageCoordinates(details.localPosition, scale);
+      final effectiveStroke = widget.strokeWidth / scale.clamp(0.25, 1.5);
+      final count = widget.captureItem.annotations
+          .where((a) => a.tool == AnnotationTool.stepCounter)
+          .length;
+
+      widget.onAddAnnotation(
+        AnnotationItem(
+          id: 'ann_${DateTime.now().microsecondsSinceEpoch}',
+          tool: AnnotationTool.stepCounter,
+          color: widget.selectedColor,
+          strokeWidth: effectiveStroke,
+          points: [imagePt],
+          text: '${count + 1}',
+        ),
+      );
+      return;
+    }
+
     if (widget.selectedTool != AnnotationTool.text) return;
 
     final imagePt = _toImageCoordinates(details.localPosition, scale);
@@ -142,6 +198,24 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
     }
   }
 
+  MouseCursor _resolveCursor() {
+    if (widget.isCropping) {
+      return SystemMouseCursors.precise;
+    }
+    switch (widget.selectedTool) {
+      case AnnotationTool.stepCounter:
+        return SystemMouseCursors.click;
+      case AnnotationTool.text:
+        return SystemMouseCursors.text;
+      case AnnotationTool.pen:
+      case AnnotationTool.highlighter:
+      case AnnotationTool.rectangle:
+      case AnnotationTool.arrow:
+      case AnnotationTool.redaction:
+        return SystemMouseCursors.precise;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final imgW = widget.captureItem.width.toDouble();
@@ -156,41 +230,123 @@ class _AnnotationCanvasState extends State<AnnotationCanvas> {
         final displayH = imgH * scale;
 
         return Center(
-          child: Container(
-            width: displayW,
-            height: displayH,
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: displayW,
+                height: displayH,
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                  border: Border.all(color: Colors.white24, width: 1),
                 ),
-              ],
-              border: Border.all(color: Colors.white24, width: 1),
-            ),
-            child: MouseRegion(
-              cursor: widget.selectedTool == AnnotationTool.text
-                  ? SystemMouseCursors.text
-                  : SystemMouseCursors.precise,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (d) => _handleTapUp(d, scale),
-                onPanStart: (d) => _handlePanStart(d, scale),
-                onPanUpdate: (d) => _handlePanUpdate(d, scale),
-                onPanEnd: _handlePanEnd,
-                child: ClipRect(
-                  child: CustomPaint(
-                    size: Size(displayW, displayH),
-                    painter: _CaptureCanvasPainter(
-                      captureItem: widget.captureItem,
-                      activeAnnotation: _activeDraft,
-                      scale: scale,
+                child: MouseRegion(
+                  cursor: _resolveCursor(),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {},
+                    onTapUp: (d) => _handleTapUp(d, scale),
+                    onPanStart: (d) => _handlePanStart(d, scale),
+                    onPanUpdate: (d) => _handlePanUpdate(d, scale),
+                    onPanEnd: _handlePanEnd,
+                    child: ClipRect(
+                      child: CustomPaint(
+                        size: Size(displayW, displayH),
+                        painter: _CaptureCanvasPainter(
+                          captureItem: widget.captureItem,
+                          activeAnnotation: _activeDraft,
+                          scale: scale,
+                          isCropping: widget.isCropping,
+                          cropRect: widget.cropRect,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+              if (widget.isCropping)
+                Positioned(
+                  bottom: 16,
+                  child: Material(
+                    color: const Color(0xFF1E2028),
+                    elevation: 12,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF3B82F6), width: 1.2),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.cropRect != null &&
+                              widget.cropRect!.width >= 1 &&
+                              widget.cropRect!.height >= 1) ...[
+                            Text(
+                              '${widget.cropRect!.width.round()} x ${widget.cropRect!.height.round()} px',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                          ] else ...[
+                            const Text(
+                              '자르고자 하는 영역을 드래그하세요',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                          ],
+                          OutlinedButton.icon(
+                            onPressed: widget.onCancelCrop,
+                            icon: const Icon(Icons.close_rounded, size: 16),
+                            label: const Text('취소 (ESC)'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: (widget.cropRect != null &&
+                                    widget.cropRect!.width >= 10 &&
+                                    widget.cropRect!.height >= 10)
+                                ? widget.onApplyCrop
+                                : null,
+                            icon: const Icon(Icons.check_rounded, size: 16),
+                            label: const Text('자르기 적용 (Enter)'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B82F6),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         );
       },
@@ -202,11 +358,15 @@ class _CaptureCanvasPainter extends CustomPainter {
   final CaptureItem captureItem;
   final AnnotationItem? activeAnnotation;
   final double scale;
+  final bool isCropping;
+  final Rect? cropRect;
 
   _CaptureCanvasPainter({
     required this.captureItem,
     required this.activeAnnotation,
     required this.scale,
+    this.isCropping = false,
+    this.cropRect,
   });
 
   @override
@@ -220,6 +380,88 @@ class _CaptureCanvasPainter extends CustomPainter {
       annotations: captureItem.annotations,
       activeAnnotation: activeAnnotation,
     );
+
+    if (isCropping && cropRect != null && !cropRect!.isEmpty) {
+      final imageRect = Rect.fromLTWH(
+        0,
+        0,
+        captureItem.width.toDouble(),
+        captureItem.height.toDouble(),
+      );
+      final clamped = cropRect!.intersect(imageRect);
+      if (!clamped.isEmpty) {
+        // 1. 외곽 어둡게 처리 (Dim overlay)
+        final dimPath = Path.combine(
+          PathOperation.difference,
+          Path()..addRect(imageRect),
+          Path()..addRect(clamped),
+        );
+        canvas.drawPath(
+          dimPath,
+          Paint()..color = Colors.black.withValues(alpha: 0.65),
+        );
+
+        // 2. 크롭 영역 경계선
+        final borderPaint = Paint()
+          ..color = const Color(0xFF3B82F6)
+          ..strokeWidth = 2.0 / scale
+          ..style = PaintingStyle.stroke;
+        canvas.drawRect(clamped, borderPaint);
+
+        // 3. 네 모서리 L자형 핸들
+        final handleLength = 16.0 / scale;
+        final handlePaint = Paint()
+          ..color = Colors.white
+          ..strokeWidth = 3.5 / scale
+          ..strokeCap = StrokeCap.square
+          ..style = PaintingStyle.stroke;
+
+        // Top-Left
+        canvas.drawLine(
+          clamped.topLeft,
+          clamped.topLeft + Offset(handleLength, 0),
+          handlePaint,
+        );
+        canvas.drawLine(
+          clamped.topLeft,
+          clamped.topLeft + Offset(0, handleLength),
+          handlePaint,
+        );
+        // Top-Right
+        canvas.drawLine(
+          clamped.topRight,
+          clamped.topRight - Offset(handleLength, 0),
+          handlePaint,
+        );
+        canvas.drawLine(
+          clamped.topRight,
+          clamped.topRight + Offset(0, handleLength),
+          handlePaint,
+        );
+        // Bottom-Left
+        canvas.drawLine(
+          clamped.bottomLeft,
+          clamped.bottomLeft + Offset(handleLength, 0),
+          handlePaint,
+        );
+        canvas.drawLine(
+          clamped.bottomLeft,
+          clamped.bottomLeft - Offset(0, handleLength),
+          handlePaint,
+        );
+        // Bottom-Right
+        canvas.drawLine(
+          clamped.bottomRight,
+          clamped.bottomRight - Offset(handleLength, 0),
+          handlePaint,
+        );
+        canvas.drawLine(
+          clamped.bottomRight,
+          clamped.bottomRight - Offset(0, handleLength),
+          handlePaint,
+        );
+      }
+    }
 
     canvas.restore();
   }

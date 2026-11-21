@@ -31,6 +31,8 @@ class TopToolbar extends StatelessWidget {
   final VoidCallback onOpenShortcutSettings;
   final VoidCallback onOpenUpdateDialog;
   final String? availableUpdateVersion;
+  final bool isCropping;
+  final VoidCallback? onToggleCrop;
 
   const TopToolbar({
     super.key,
@@ -58,6 +60,8 @@ class TopToolbar extends StatelessWidget {
     required this.onOpenShortcutSettings,
     required this.onOpenUpdateDialog,
     this.availableUpdateVersion,
+    this.isCropping = false,
+    this.onToggleCrop,
   });
 
   static const List<Color> paletteColors = [
@@ -284,9 +288,14 @@ class TopToolbar extends StatelessWidget {
                   icon: Icons.title_rounded,
                 ),
                 _buildToolChip(
+                  tool: AnnotationTool.stepCounter,
+                  icon: Icons.format_list_numbered_rounded,
+                ),
+                _buildToolChip(
                   tool: AnnotationTool.redaction,
                   icon: Icons.shield_rounded,
                 ),
+                _buildCropButton(),
                 _buildVerticalDivider(),
                 for (final color in paletteColors)
                   Padding(
@@ -446,6 +455,57 @@ class TopToolbar extends StatelessWidget {
                     fontSize: 12.5,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                     color: isSelected ? Colors.white : Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCropButton() {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: Tooltip(
+        message: isCropping ? '자르기 취소 (ESC)' : '이미지 자르기 (Crop)',
+        child: InkWell(
+          onTap: hasActiveCapture ? onToggleCrop : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: isCropping
+                  ? const Color(0xFF3B82F6).withValues(alpha: 0.3)
+                  : const Color(0xFF262934),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isCropping
+                    ? const Color(0xFF60A5FA)
+                    : const Color(0xFF323644),
+                width: isCropping ? 1.5 : 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.crop_rounded,
+                  size: 16,
+                  color: isCropping
+                      ? const Color(0xFF60A5FA)
+                      : (hasActiveCapture ? Colors.white70 : Colors.white24),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  '자르기',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: isCropping ? FontWeight.w600 : FontWeight.w400,
+                    color: isCropping
+                        ? Colors.white
+                        : (hasActiveCapture ? Colors.white70 : Colors.white24),
                   ),
                 ),
               ],

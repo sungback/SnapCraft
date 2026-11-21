@@ -116,6 +116,9 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   Color _selectedColor = TopToolbar.paletteColors.first;
   double _strokeWidth = 5.0;
 
+  bool _isCropping = false;
+  Rect? _cropRect;
+
   bool _isCapturing = false;
   final _exportSettings = ExportSettingsService();
   bool _exportSettingsLoading = true;
@@ -200,6 +203,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
     setState(() {
       _isCapturing = true;
+      _isCropping = false;
+      _cropRect = null;
       _statusMessage = '화면 캡쳐 진행 중... (ESC 키를 누르면 취소됩니다)';
     });
 
@@ -281,6 +286,74 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       current.redoStack.clear();
       _statusMessage = '모든 마크업 주석을 초기화했습니다.';
     });
+  }
+
+  void _toggleCrop() {
+    if (_isCropping) {
+      _cancelCrop();
+    } else {
+      _startCrop();
+    }
+  }
+
+  void _startCrop() {
+    if (_selectedItem == null) return;
+    setState(() {
+      _isCropping = true;
+      _cropRect = null;
+      _statusMessage = '자르기 모드 · 마우스 드래그로 영역을 지정하세요. (Enter: 적용, ESC: 취소)';
+    });
+  }
+
+  void _cancelCrop() {
+    if (!_isCropping) return;
+    setState(() {
+      _isCropping = false;
+      _cropRect = null;
+      _statusMessage = '자르기가 취소되었습니다.';
+    });
+  }
+
+  Future<void> _applyCrop() async {
+    final current = _selectedItem;
+    final cropRect = _cropRect;
+    if (current == null || cropRect == null || !_isCropping) return;
+    if (cropRect.width < 10 || cropRect.height < 10) {
+      setState(() => _statusMessage = '자르기 영역이 너무 작습니다 (최소 10x10 px).');
+      return;
+    }
+
+    try {
+      final cropped = await ExportService.instance.cropCapture(
+        item: current,
+        cropRect: cropRect,
+      );
+      if (!mounted) {
+        cropped.dispose();
+        unawaited(CaptureFiles.deleteOriginal(cropped.filePath));
+        return;
+      }
+      setState(() {
+        final idx = _history.indexWhere((e) => e.id == current.id);
+        if (idx != -1) {
+          _history[idx] = cropped;
+        } else {
+          _history.insert(0, cropped);
+        }
+        _selectedItem = cropped;
+        _isCropping = false;
+        _cropRect = null;
+        _statusMessage =
+            '이미지를 잘라냈습니다 (${cropped.resolutionLabel}) · 클립보드에 자동 복사 중...';
+      });
+      _releaseCapture(current);
+      unawaited(_copyToClipboard(automatic: true));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = '자르기 실패: $e';
+      });
+    }
   }
 
   Future<void> _copyToClipboard({bool automatic = false}) async {
@@ -410,6 +483,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   void _deleteCaptureItem(CaptureItem item) {
     _clipboardRequest++;
     setState(() {
+      _isCropping = false;
+      _cropRect = null;
       final idx = _history.indexWhere((e) => e.id == item.id);
       _history.removeWhere((e) => e.id == item.id);
       if (_selectedItem?.id == item.id) {
@@ -471,6 +546,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _saveToFile,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true):
             _saveToFile,
+        const SingleActivator(LogicalKeyboardKey.escape): _cancelCrop,
+        const SingleActivator(LogicalKeyboardKey.enter): _applyCrop,
       },
       child: Focus(
         autofocus: true,
@@ -505,6 +582,8 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 availableUpdateVersion: (_latestReleaseInfo?.hasUpdate ?? false)
                     ? _latestReleaseInfo?.latestVersion
                     : null,
+                isCropping: _isCropping,
+                onToggleCrop: _toggleCrop,
               ),
               Expanded(
                 child: Row(
@@ -514,7 +593,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                       selectedItem: current,
                       onSelectItem: (item) {
                         _clipboardRequest++;
-                        setState(() => _selectedItem = item);
+                        setState(() {
+                          _isCropping = false;
+                          _cropRect = null;
+                          _selectedItem = item;
+                        });
                       },
                       onDeleteItem: _deleteCaptureItem,
                     ),
@@ -530,6 +613,12 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                                 selectedColor: _selectedColor,
                                 strokeWidth: _strokeWidth,
                                 onAddAnnotation: _addAnnotation,
+                                isCropping: _isCropping,
+                                cropRect: _cropRect,
+                                onCropRectChanged: (r) =>
+                                    setState(() => _cropRect = r),
+                                onApplyCrop: _applyCrop,
+                                onCancelCrop: _cancelCrop,
                               ),
                       ),
                     ),

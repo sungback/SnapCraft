@@ -62,6 +62,9 @@ class ExportService {
         case AnnotationTool.text:
           _drawText(canvas, item);
           break;
+        case AnnotationTool.stepCounter:
+          _drawStepCounter(canvas, item);
+          break;
         case AnnotationTool.redaction:
           // Apply last so the mask remains opaque above all other annotations.
           break;
@@ -223,6 +226,68 @@ class ExportService {
     textPainter.paint(canvas, position);
   }
 
+  static void _drawStepCounter(Canvas canvas, AnnotationItem item) {
+    if (item.points.isEmpty) return;
+    final center = item.points.first;
+    final text = item.text ?? '1';
+    final radius = (item.strokeWidth * 3.6).clamp(14.0, 36.0);
+
+    // 1. 외곽 그림자
+    canvas.drawCircle(
+      center + const Offset(0, 1.5),
+      radius,
+      Paint()
+        ..color = Colors.black45
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // 2. 메인 채우기 원 (선택된 색상)
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = item.color
+        ..style = PaintingStyle.fill,
+    );
+
+    // 3. 흰색 윤곽 테두리 (어떤 배경에서도 구분 가능)
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.92)
+        ..strokeWidth = (radius * 0.12).clamp(1.5, 3.0)
+        ..style = PaintingStyle.stroke,
+    );
+
+    // 4. 숫자 텍스트 (색상 밝기에 따라 텍스트 색상 자동 결정)
+    final textColor = item.color.computeLuminance() > 0.55
+        ? Colors.black87
+        : Colors.white;
+
+    final fontSize = (radius * 1.15).clamp(12.0, 32.0);
+    final textSpan = TextSpan(
+      text: text,
+      style: TextStyle(
+        color: textColor,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w800,
+        height: 1.0,
+      ),
+    );
+
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final textOffset = Offset(
+      center.dx - textPainter.width / 2,
+      center.dy - textPainter.height / 2,
+    );
+    textPainter.paint(canvas, textOffset);
+  }
+
   /// 마크업이 포함된 CaptureItem을 원본 해상도 PNG 바이트로 렌더링합니다.
   Future<Uint8List> renderAnnotatedPng(CaptureItem item) async {
     if (item.annotations.isEmpty) {
@@ -250,6 +315,79 @@ class ExportService {
       return byteData.buffer.asUint8List();
     } finally {
       renderedImage?.dispose();
+      if (recorder.isRecording) recorder.endRecording().dispose();
+      picture?.dispose();
+      image.dispose();
+    }
+  }
+
+  /// 원본 캡쳐본과 현재 마크업을 지정된 Rect 영역(원본 픽셀 좌표계)으로 잘라내어 새 CaptureItem을 반환합니다.
+  Future<CaptureItem> cropCapture({
+    required CaptureItem item,
+    required Rect cropRect,
+  }) async {
+    final imageRect = Rect.fromLTWH(
+      0,
+      0,
+      item.width.toDouble(),
+      item.height.toDouble(),
+    );
+    final clampedRect = cropRect.intersect(imageRect);
+    if (clampedRect.width < 10 || clampedRect.height < 10) {
+      throw ArgumentError('자르기 영역이 너무 작습니다 (최소 10x10 px 필요).');
+    }
+
+    final cropLeft = clampedRect.left.round();
+    final cropTop = clampedRect.top.round();
+    final cropWidth = clampedRect.width.round();
+    final cropHeight = clampedRect.height.round();
+
+    final image = item.decodedImage.clone();
+    final recorder = ui.PictureRecorder();
+    ui.Picture? picture;
+    ui.Image? croppedImage;
+    try {
+      final canvas = Canvas(recorder);
+      canvas.translate(-cropLeft.toDouble(), -cropTop.toDouble());
+
+      paintCaptureScene(
+        canvas: canvas,
+        image: image,
+        annotations: List.of(item.annotations),
+      );
+
+      picture = recorder.endRecording();
+      croppedImage = await picture.toImage(cropWidth, cropHeight);
+      final byteData = await croppedImage.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      if (byteData == null) {
+        throw StateError('PNG 인코딩 실패');
+      }
+      final croppedBytes = byteData.buffer.asUint8List();
+
+      final tempDir = await getTemporaryDirectory();
+      final capturesDir = Directory('${tempDir.path}/snap_craft_captures');
+      if (!await capturesDir.exists()) {
+        await capturesDir.create(recursive: true);
+      }
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final filePath = '${capturesDir.path}/snap_crop_$timestamp.png';
+      await File(filePath).writeAsBytes(croppedBytes, flush: true);
+
+      // Clone a retained image for the new CaptureItem
+      final returnedImage = croppedImage.clone();
+
+      return CaptureItem(
+        id: 'crop_$timestamp',
+        filePath: filePath,
+        originalBytes: croppedBytes,
+        decodedImage: returnedImage,
+        capturedAt: DateTime.now(),
+        mode: item.mode,
+      );
+    } finally {
+      croppedImage?.dispose();
       if (recorder.isRecording) recorder.endRecording().dispose();
       picture?.dispose();
       image.dispose();
