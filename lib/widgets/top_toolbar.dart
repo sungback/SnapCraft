@@ -33,6 +33,10 @@ class TopToolbar extends StatelessWidget {
   final String? availableUpdateVersion;
   final bool isCropping;
   final VoidCallback? onToggleCrop;
+  final VoidCallback? onExtractText;
+  final ValueChanged<String>? onCopyForAgent;
+  final bool isPinned;
+  final VoidCallback? onTogglePin;
 
   const TopToolbar({
     super.key,
@@ -62,6 +66,10 @@ class TopToolbar extends StatelessWidget {
     this.availableUpdateVersion,
     this.isCropping = false,
     this.onToggleCrop,
+    this.onExtractText,
+    this.onCopyForAgent,
+    this.isPinned = false,
+    this.onTogglePin,
   });
 
   static const List<Color> paletteColors = [
@@ -184,6 +192,108 @@ class TopToolbar extends StatelessWidget {
                 ),
               const SizedBox(width: 12),
               // 우측 내보내기 버튼들
+              Tooltip(
+                message: '화면 텍스트 추출 (로컬 OCR)',
+                child: FilledButton.tonalIcon(
+                  onPressed: hasActiveCapture ? onExtractText : null,
+                  icon: const Icon(Icons.document_scanner_rounded, size: 17),
+                  label: const Text('텍스트 추출'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF282B36),
+                    foregroundColor: const Color(0xFF60A5FA),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                tooltip: '에이전트용 템플릿 복사 (AI 프롬프트)',
+                enabled: hasActiveCapture,
+                onSelected: (template) => onCopyForAgent?.call(template),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: '[image: {path}] 이 스크린샷을 분석해서 문제를 설명해줘.',
+                    child: Text('기본: 분석 및 문제 설명'),
+                  ),
+                  PopupMenuItem(
+                    value: '[image: {path}] 이 화면에 보이는 내용을 상세히 설명해줘.',
+                    child: Text('상세: 화면 내용 설명'),
+                  ),
+                  PopupMenuItem(
+                    value: '![스크린샷]({path})',
+                    child: Text('마크다운: ![스크린샷](경로)'),
+                  ),
+                  PopupMenuItem(
+                    value: '{path}',
+                    child: Text('경로만: 이미지 파일 절대경로'),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282B36),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF383C4A)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.smart_toy_outlined,
+                        size: 17,
+                        color: Color(0xFF34D399),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '에이전트 복사',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down_rounded,
+                        size: 18,
+                        color: Colors.white70,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: isPinned ? '화면 핀 고정 해제' : '화면 최상단 핀 고정 (Always-on-Top)',
+                child: IconButton(
+                  onPressed: hasActiveCapture ? onTogglePin : null,
+                  icon: Icon(
+                    isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                    size: 19,
+                  ),
+                  color: isPinned ? const Color(0xFF60A5FA) : Colors.white70,
+                  style: IconButton.styleFrom(
+                    backgroundColor: isPinned
+                        ? const Color(0xFF3B82F6).withValues(alpha: 0.25)
+                        : const Color(0xFF282B36),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: isPinned
+                          ? const BorderSide(
+                              color: Color(0xFF60A5FA),
+                              width: 1.2,
+                            )
+                          : BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               FilledButton.tonalIcon(
                 onPressed: hasActiveCapture ? onCopyClipboard : null,
                 icon: const Icon(Icons.copy_rounded, size: 17),

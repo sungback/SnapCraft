@@ -14,9 +14,11 @@ import 'services/capture_files.dart';
 import 'services/export_service.dart';
 import 'services/export_settings_service.dart';
 import 'services/hotkey_service.dart';
+import 'services/ocr_service.dart';
 import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
 import 'widgets/history_sidebar.dart';
+import 'widgets/ocr_result_dialog.dart';
 import 'widgets/shortcut_settings_dialog.dart';
 import 'widgets/top_toolbar.dart';
 import 'widgets/update_dialog.dart';
@@ -118,6 +120,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   bool _isCropping = false;
   Rect? _cropRect;
+
+  bool _isPinned = false;
+  Size? _savedWindowSize;
+  Offset? _savedWindowPosition;
+  bool _isOcrRunning = false;
 
   bool _isCapturing = false;
   final _exportSettings = ExportSettingsService();
@@ -356,6 +363,114 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     }
   }
 
+  Future<void> _extractText() async {
+    final current = _selectedItem;
+    if (current == null || _isOcrRunning) return;
+    setState(() {
+      _isOcrRunning = true;
+      _statusMessage = '화면 텍스트 인식(OCR) 중...';
+    });
+
+    try {
+      final text = await OcrService.instance.recognizeText(current);
+      if (!mounted) return;
+      if (text == null || text.trim().isEmpty) {
+        setState(() => _statusMessage = '인식된 텍스트가 없습니다.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('화면에서 인식된 텍스트가 없습니다.'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            width: 360,
+          ),
+        );
+        return;
+      }
+
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted) return;
+      setState(() => _statusMessage = '텍스트를 추출하여 클립보드에 복사했습니다 (${text.length}자).');
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => OcrResultDialog(initialText: text),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = '텍스트 추출 실패: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('텍스트 추출 실패: $e'),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          width: 420,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isOcrRunning = false);
+    }
+  }
+
+  Future<void> _copyForAgent(String template) async {
+    final current = _selectedItem;
+    if (current == null) return;
+
+    try {
+      final text = await ExportService.instance.copyForAgent(
+        current,
+        template: template,
+      );
+      if (!mounted || text == null) return;
+      setState(() => _statusMessage = '에이전트용 프롬프트가 클립보드에 복사되었습니다.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('에이전트용 프롬프트가 클립보드에 복사되었습니다!'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          width: 380,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = '에이전트 복사 실패: $e');
+    }
+  }
+
+  Future<void> _togglePinMode() async {
+    final current = _selectedItem;
+    if (current == null) return;
+
+    if (_isPinned) {
+      await windowManager.setAlwaysOnTop(false);
+      if (_savedWindowSize != null) {
+        await windowManager.setSize(_savedWindowSize!);
+      }
+      if (_savedWindowPosition != null) {
+        await windowManager.setPosition(_savedWindowPosition!);
+      }
+      setState(() {
+        _isPinned = false;
+        _statusMessage = '핀 고정 모드가 해제되었습니다.';
+      });
+    } else {
+      try {
+        _savedWindowSize = await windowManager.getSize();
+        _savedWindowPosition = await windowManager.getPosition();
+      } catch (_) {}
+
+      final double targetW = 420.0;
+      final double ratio = current.height / current.width;
+      final double targetH = (targetW * ratio).clamp(200.0, 600.0) + 48.0;
+
+      await windowManager.setAlwaysOnTop(true);
+      await windowManager.setSize(Size(targetW, targetH));
+      setState(() {
+        _isPinned = true;
+        _statusMessage = '화면 핀 고정 모드 (항상 최상단)';
+      });
+    }
+  }
+
   Future<void> _copyToClipboard({bool automatic = false}) async {
     final current = _selectedItem;
     if (current == null) return;
@@ -528,6 +643,56 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   Widget build(BuildContext context) {
     final current = _selectedItem;
 
+    if (_isPinned && current != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF14161C),
+        body: Column(
+          children: [
+            Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              color: const Color(0xFF1E2028),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.push_pin_rounded,
+                    size: 16,
+                    color: Color(0xFF60A5FA),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '핀 고정 (${current.resolutionLabel})',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: _togglePinMode,
+                    tooltip: '원래 크기로 복귀',
+                    icon: const Icon(Icons.open_in_full_rounded, size: 16),
+                    color: Colors.white70,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: AnnotationCanvas(
+                key: ValueKey(current.id),
+                captureItem: current,
+                selectedTool: _selectedTool,
+                selectedColor: _selectedColor,
+                strokeWidth: _strokeWidth,
+                onAddAnnotation: _addAnnotation,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
@@ -584,6 +749,10 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                     : null,
                 isCropping: _isCropping,
                 onToggleCrop: _toggleCrop,
+                onExtractText: _extractText,
+                onCopyForAgent: _copyForAgent,
+                isPinned: _isPinned,
+                onTogglePin: _togglePinMode,
               ),
               Expanded(
                 child: Row(

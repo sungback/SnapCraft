@@ -408,6 +408,25 @@ class ExportService {
     }
   }
 
+  /// 에이전트(터미널 AI, Claude CLI, agy 등)에게 전달하기 적합한 템플릿 형태로 클립보드에 복사합니다.
+  Future<String?> copyForAgent(
+    CaptureItem item, {
+    String template = '[image: {path}] 이 스크린샷을 분석해서 설명해줘.',
+  }) async {
+    final pngBytes = await renderAnnotatedPng(item);
+    final temp = await getTemporaryDirectory();
+    final folder = Directory('${temp.path}/snap_craft_clipboard');
+    await folder.create(recursive: true);
+    final clipboardFile = File(
+      '${folder.path}/agent_${DateTime.now().microsecondsSinceEpoch}.png',
+    );
+    await clipboardFile.writeAsBytes(pngBytes, flush: true);
+
+    final text = template.replaceAll('{path}', clipboardFile.path);
+    await Clipboard.setData(ClipboardData(text: text));
+    return text;
+  }
+
   int _clipboardRequest = 0;
   Future<void>? _clipboardWrites;
 
