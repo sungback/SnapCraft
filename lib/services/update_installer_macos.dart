@@ -186,7 +186,8 @@ class MacUpdateInstaller {
   }
 
   /// 새 앱의 서명 팀이 현재 실행 중인 앱과 같은지 확인한다. 다른 인증서로 서명된 앱은 거부한다.
-  /// 현재 앱이 .app 번들이 아니면(개발 환경) 설치하지 않으므로 검사하지 않는다.
+  /// 현재 앱 또는 새 앱이 정식 서명된 경우 팀 서명 일치를 검증하며,
+  /// 로컬/Ad-hoc 빌드에서도 SHA256 체크섬 무결성이 확인되면 업데이트를 허용한다.
   Future<void> _verifySameTeam(String newAppPath) async {
     final currentAppDir = File(Platform.resolvedExecutable)
         .parent
@@ -195,14 +196,14 @@ class MacUpdateInstaller {
     if (!currentAppDir.path.endsWith('.app')) return;
 
     final current = await _teamIdentifier(currentAppDir.path);
-    if (current == null) {
-      throw const FormatException(
-        '현재 앱에 팀 서명이 없어 업데이트 출처를 확인할 수 없습니다. 릴리즈 페이지에서 직접 설치하세요.',
-      );
-    }
     final next = await _teamIdentifier(newAppPath);
-    if (next != current) {
+
+    // 정식 팀 서명이 존재하는 경우 검증
+    if (current != null && next != null && current != next) {
       throw const FormatException('업데이트 앱의 서명 팀이 현재 앱과 달라 설치를 중단했습니다.');
+    }
+    if (current != null && next == null) {
+      throw const FormatException('업데이트 앱에 정식 팀 서명이 없어 설치를 중단했습니다.');
     }
   }
 

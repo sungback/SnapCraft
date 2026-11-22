@@ -15,6 +15,7 @@ import 'services/export_service.dart';
 import 'services/export_settings_service.dart';
 import 'services/hotkey_service.dart';
 import 'services/ocr_service.dart';
+import 'services/tray_service.dart';
 import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
 import 'widgets/history_sidebar.dart';
@@ -150,14 +151,28 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     for (final item in _history) {
       _releaseCapture(item);
     }
+    TrayService.instance.dispose();
     super.dispose();
   }
 
   @override
   Future<void> onWindowClose() async {
     if (!_isCapturing) {
-      exit(0);
+      if (TrayService.instance.closeToTray) {
+        await windowManager.hide();
+      } else {
+        exit(0);
+      }
     }
+  }
+
+  Future<void> _showAppWindow() async {
+    final isMinimized = await windowManager.isMinimized();
+    if (isMinimized) {
+      await windowManager.restore();
+    }
+    await windowManager.show();
+    await windowManager.focus();
   }
 
   Future<void> _initServices() async {
@@ -165,6 +180,10 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     await HotkeyService.instance.initialize((mode) {
       _triggerCapture(mode);
     });
+    await TrayService.instance.init(
+      onShowWindow: _showAppWindow,
+      onTriggerCapture: (mode) => _triggerCapture(mode),
+    );
 
     final ver = await UpdateService.instance.getCurrentVersion();
     if (mounted) {

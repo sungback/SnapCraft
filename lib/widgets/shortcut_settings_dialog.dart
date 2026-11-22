@@ -3,6 +3,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 
 import '../services/hotkey_service.dart';
+import '../services/tray_service.dart';
 
 class ShortcutSettingsDialog extends StatefulWidget {
   final VoidCallback onShortcutsUpdated;
@@ -72,7 +73,7 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
           Icon(Icons.keyboard_rounded, size: 22, color: Color(0xFF60A5FA)),
           SizedBox(width: 10),
           Text(
-            '글로벌 단축키 설정',
+            '단축키 및 시스템 설정',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
         ],
@@ -107,6 +108,56 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
               title: '창 선택 캡쳐',
               subtitle: '특정 실행 중인 창 선택 캡쳐',
               icon: Icons.web_asset_rounded,
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF252834),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF323646)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.vertical_align_bottom_rounded,
+                    size: 20,
+                    color: Colors.white70,
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '창 닫기 시 시스템 트레이로 숨기기',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          '닫기(X) 버튼 클릭 시 앱이 종료되지 않고 메뉴바에 상주합니다.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: TrayService.instance.closeToTray,
+                    activeThumbColor: const Color(0xFF60A5FA),
+                    onChanged: (val) async {
+                      await TrayService.instance.setCloseToTray(val);
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
