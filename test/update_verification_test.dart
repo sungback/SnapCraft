@@ -63,4 +63,56 @@ void main() {
       );
     });
   });
+
+  group('validateTeamIdentifiers', () {
+    test('allows update when both are ad-hoc (no team)', () {
+      expect(
+        () => MacUpdateInstaller.validateTeamIdentifiers(
+          current: null,
+          next: null,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('allows update when current is ad-hoc and next is signed', () {
+      expect(
+        () => MacUpdateInstaller.validateTeamIdentifiers(
+          current: null,
+          next: 'ABCDE12345',
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('allows update when current is signed and next is ad-hoc release', () {
+      expect(
+        () => MacUpdateInstaller.validateTeamIdentifiers(
+          current: 'ABCDE12345',
+          next: null,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('allows update when both teams match', () {
+      expect(
+        () => MacUpdateInstaller.validateTeamIdentifiers(
+          current: 'ABCDE12345',
+          next: 'ABCDE12345',
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('rejects update when teams differ', () {
+      expect(
+        () => MacUpdateInstaller.validateTeamIdentifiers(
+          current: 'ABCDE12345',
+          next: 'XYZ9876543',
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
 }
