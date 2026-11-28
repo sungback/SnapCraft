@@ -9,8 +9,10 @@ void main() {
     bool hasCapture = false,
     bool busy = false,
     String? directory,
+    bool autoSaveEnabled = false,
     VoidCallback? onChoose,
     VoidCallback? onClear,
+    VoidCallback? onToggleAutoSave,
     VoidCallback? onSaveAs,
     ValueChanged<AnnotationTool>? onSelectTool,
   }) async {
@@ -37,9 +39,11 @@ void main() {
             onCopyClipboard: () {},
             onSaveFile: () {},
             saveDirectory: directory,
+            autoSaveEnabled: autoSaveEnabled,
             isExportBusy: busy,
             onChooseSaveDirectory: onChoose ?? () {},
             onClearSaveDirectory: onClear ?? () {},
+            onToggleAutoSave: onToggleAutoSave,
             onSaveFileAs: onSaveAs ?? () {},
             onOpenShortcutSettings: () {},
             onOpenUpdateDialog: () {},
@@ -156,6 +160,51 @@ void main() {
     await tester.tap(find.text('저장 폴더 지정 해제'));
     await tester.pumpAndSettle();
     expect(clears, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('auto-save menu item toggles and updates tooltip', (
+    tester,
+  ) async {
+    var toggles = 0;
+    await pumpToolbar(
+      tester,
+      directory: '/캡쳐',
+      autoSaveEnabled: false,
+      onToggleAutoSave: () => toggles++,
+    );
+    await tester.tap(find.byTooltip('PNG 저장 옵션'));
+    await tester.pumpAndSettle();
+    expect(find.text('캡쳐 시 자동 저장'), findsOneWidget);
+    await tester.tap(
+      find.ancestor(
+        of: find.text('캡쳐 시 자동 저장'),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is CheckedPopupMenuItem,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(toggles, 1);
+
+    await pumpToolbar(
+      tester,
+      directory: '/캡쳐',
+      autoSaveEnabled: true,
+      onToggleAutoSave: () => toggles++,
+    );
+    expect(find.byTooltip('PNG 저장 옵션 (자동 저장 켜짐)'), findsOneWidget);
+    await tester.tap(find.byTooltip('PNG 저장 옵션 (자동 저장 켜짐)'));
+    await tester.pumpAndSettle();
+    final checkedItem = tester.widget<CheckedPopupMenuItem<dynamic>>(
+      find.ancestor(
+        of: find.text('캡쳐 시 자동 저장'),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is CheckedPopupMenuItem,
+        ),
+      ),
+    );
+    expect(checkedItem.checked, isTrue);
     expect(tester.takeException(), isNull);
   });
 }

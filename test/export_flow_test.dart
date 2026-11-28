@@ -334,4 +334,161 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets(
+    'enabling auto-save without a directory prompts picker and saves both on selection',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await launch(tester);
+      expect(toolbar(tester).saveDirectory, isNull);
+      expect(toolbar(tester).autoSaveEnabled, isFalse);
+
+      // Cancel folder picker: both directory and auto-save stay unset.
+      await tester.runAsync(() async {
+        picker.directory = Completer<String?>();
+        picker.directoryStarted = Completer<void>();
+        toolbar(tester).onToggleAutoSave?.call();
+        await picker.directoryStarted!.future.timeout(
+          const Duration(seconds: 10),
+        );
+        picker.directoryStarted = null;
+      });
+      await tester.pumpAndSettle();
+      expect(picker.directoryCalls, 1);
+      await finishDirectory(tester, null);
+      expect(toolbar(tester).saveDirectory, isNull);
+      expect(toolbar(tester).autoSaveEnabled, isFalse);
+
+      // Select folder: sets both directory and auto-save.
+      await tester.runAsync(() async {
+        picker.directory = Completer<String?>();
+        picker.directoryStarted = Completer<void>();
+        toolbar(tester).onToggleAutoSave?.call();
+        await picker.directoryStarted!.future.timeout(
+          const Duration(seconds: 10),
+        );
+        picker.directoryStarted = null;
+      });
+      await tester.pumpAndSettle();
+      expect(picker.directoryCalls, 2);
+      await finishDirectory(tester, '/자동 저장 폴더');
+      expect(toolbar(tester).saveDirectory, '/자동 저장 폴더');
+      expect(toolbar(tester).autoSaveEnabled, isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('png_save_directory'), '/자동 저장 폴더');
+      expect(prefs.getBool('png_auto_save_on_capture'), isTrue);
+    },
+  );
+
+  testWidgets(
+    'capturing with auto-save enabled writes PNG to configured directory',
+    (tester) async {
+      final previousPaths = PathProviderPlatform.instance;
+      final previousCapture = ScreenCapturerPlatform.instance;
+      late Directory temp;
+      late Directory autoSaveDir;
+      await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp('snapcraft autosave ');
+        autoSaveDir = await Directory(
+          '${temp.path}/out',
+        ).create(recursive: true);
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder).drawColor(Colors.white, BlendMode.src);
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(16, 16);
+        picture.dispose();
+        final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+        image.dispose();
+        ScreenCapturerPlatform.instance = _CapturePlatform(
+          _SystemCapture(bytes),
+        );
+        PathProviderPlatform.instance = _Paths(temp.path);
+      });
+      addTearDown(() async {
+        PathProviderPlatform.instance = previousPaths;
+        ScreenCapturerPlatform.instance = previousCapture;
+        await temp.delete(recursive: true);
+      });
+      SharedPreferences.setMockInitialValues({
+        'png_save_directory': autoSaveDir.path,
+        'png_auto_save_on_capture': true,
+      });
+
+      await launch(tester);
+      expect(toolbar(tester).autoSaveEnabled, isTrue);
+
+      await tester.runAsync(() async {
+        await (Function.apply(toolbar(tester).onTriggerCapture, [
+          CaptureMode.region,
+        ]) as Future<void>);
+      });
+      await tester.pumpAndSettle();
+
+      expect(toolbar(tester).hasActiveCapture, isTrue);
+      expect(find.textContaining('자동 저장 완료:'), findsOneWidget);
+      final savedFiles = await tester.runAsync(
+        () => autoSaveDir
+            .list()
+            .where((entry) => entry is File && entry.path.endsWith('.png'))
+            .toList(),
+      );
+      expect(savedFiles, hasLength(1));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'capturing with missing auto-save directory keeps capture and reports failure',
+    (tester) async {
+      final previousPaths = PathProviderPlatform.instance;
+      final previousCapture = ScreenCapturerPlatform.instance;
+      late Directory temp;
+      await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp(
+          'snapcraft autosave missing ',
+        );
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder).drawColor(Colors.white, BlendMode.src);
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(16, 16);
+        picture.dispose();
+        final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+        image.dispose();
+        ScreenCapturerPlatform.instance = _CapturePlatform(
+          _SystemCapture(bytes),
+        );
+        PathProviderPlatform.instance = _Paths(temp.path);
+      });
+      addTearDown(() async {
+        PathProviderPlatform.instance = previousPaths;
+        ScreenCapturerPlatform.instance = previousCapture;
+        await temp.delete(recursive: true);
+      });
+      final missingPath = '${temp.path}/does_not_exist';
+      SharedPreferences.setMockInitialValues({
+        'png_save_directory': missingPath,
+        'png_auto_save_on_capture': true,
+      });
+
+      await launch(tester);
+      await tester.runAsync(() async {
+        await (Function.apply(toolbar(tester).onTriggerCapture, [
+          CaptureMode.region,
+        ]) as Future<void>);
+      });
+      await tester.pumpAndSettle();
+
+      expect(toolbar(tester).hasActiveCapture, isTrue);
+      expect(find.textContaining('자동 저장 실패:'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    },
+  );
 }

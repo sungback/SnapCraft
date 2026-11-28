@@ -4,7 +4,7 @@ import 'package:screen_capturer/screen_capturer.dart';
 import '../models/annotation.dart';
 import '../services/hotkey_service.dart';
 
-enum _SaveAction { chooseDirectory, clearDirectory, saveAs }
+enum _SaveAction { chooseDirectory, clearDirectory, toggleAutoSave, saveAs }
 
 class TopToolbar extends StatelessWidget {
   final bool hasActiveCapture;
@@ -24,9 +24,11 @@ class TopToolbar extends StatelessWidget {
   final VoidCallback onCopyClipboard;
   final VoidCallback onSaveFile;
   final String? saveDirectory;
+  final bool autoSaveEnabled;
   final bool isExportBusy;
   final VoidCallback onChooseSaveDirectory;
   final VoidCallback onClearSaveDirectory;
+  final VoidCallback? onToggleAutoSave;
   final VoidCallback onSaveFileAs;
   final VoidCallback onOpenShortcutSettings;
   final VoidCallback onOpenUpdateDialog;
@@ -57,9 +59,11 @@ class TopToolbar extends StatelessWidget {
     required this.onCopyClipboard,
     required this.onSaveFile,
     required this.saveDirectory,
+    this.autoSaveEnabled = false,
     required this.isExportBusy,
     required this.onChooseSaveDirectory,
     required this.onClearSaveDirectory,
+    this.onToggleAutoSave,
     required this.onSaveFileAs,
     required this.onOpenShortcutSettings,
     required this.onOpenUpdateDialog,
@@ -324,15 +328,22 @@ class TopToolbar extends StatelessWidget {
                 ),
               ),
               PopupMenuButton<_SaveAction>(
-                tooltip: 'PNG 저장 옵션',
+                tooltip: autoSaveEnabled
+                    ? 'PNG 저장 옵션 (자동 저장 켜짐)'
+                    : 'PNG 저장 옵션',
                 enabled: !isExportBusy,
-                icon: const Icon(Icons.arrow_drop_down_rounded),
+                icon: Icon(
+                  Icons.arrow_drop_down_rounded,
+                  color: autoSaveEnabled ? const Color(0xFF34D399) : null,
+                ),
                 onSelected: (action) {
                   switch (action) {
                     case _SaveAction.chooseDirectory:
                       onChooseSaveDirectory();
                     case _SaveAction.clearDirectory:
                       onClearSaveDirectory();
+                    case _SaveAction.toggleAutoSave:
+                      onToggleAutoSave?.call();
                     case _SaveAction.saveAs:
                       onSaveFileAs();
                   }
@@ -360,6 +371,11 @@ class TopToolbar extends StatelessWidget {
                     value: _SaveAction.clearDirectory,
                     enabled: saveDirectory != null,
                     child: const Text('저장 폴더 지정 해제'),
+                  ),
+                  CheckedPopupMenuItem<_SaveAction>(
+                    value: _SaveAction.toggleAutoSave,
+                    checked: autoSaveEnabled,
+                    child: const Text('캡쳐 시 자동 저장'),
                   ),
                   const PopupMenuDivider(),
                   PopupMenuItem(

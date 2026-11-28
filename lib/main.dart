@@ -257,6 +257,27 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
               '${trimmed ? ' · 보관 한도에 도달해 오래된 캡쳐를 정리했습니다.' : ''}';
         }
       });
+      if (item != null &&
+          _exportSettings.autoSave &&
+          _exportSettings.directory != null) {
+        try {
+          final savedPath = await ExportService.instance.saveToFile(
+            item,
+            directory: _exportSettings.directory!,
+          );
+          if (mounted && savedPath != null) {
+            setState(() {
+              _statusMessage = '$_statusMessage · 자동 저장 완료: $savedPath';
+            });
+          }
+        } catch (saveError) {
+          if (mounted) {
+            setState(() {
+              _statusMessage = '$_statusMessage · 자동 저장 실패: $saveError';
+            });
+          }
+        }
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -566,15 +587,50 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
         );
         if (directory == null || directory.isEmpty || !mounted) return;
       }
+      final hadAutoSave = _exportSettings.autoSave;
       await _exportSettings.setDirectory(directory);
       if (!mounted) return;
       setState(() {
         _statusMessage = directory == null
-            ? '저장 폴더 지정을 해제했습니다.'
+            ? (hadAutoSave
+                  ? '저장 폴더 지정을 해제하고 자동 저장을 껐습니다.'
+                  : '저장 폴더 지정을 해제했습니다.')
             : 'PNG 저장 폴더: $directory';
       });
     } catch (e) {
       if (mounted) setState(() => _statusMessage = '저장 폴더 설정 실패: $e');
+    } finally {
+      if (mounted) setState(() => _exportBusy = false);
+    }
+  }
+
+  Future<void> _toggleAutoSave() async {
+    if (_exportSettingsLoading || _exportBusy) return;
+    setState(() => _exportBusy = true);
+    try {
+      if (_exportSettings.autoSave) {
+        await _exportSettings.setAutoSave(false);
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = '캡쳐 시 자동 저장을 껐습니다.';
+        });
+      } else {
+        if (_exportSettings.directory == null) {
+          if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
+          final directory = await FilePicker.getDirectoryPath(
+            dialogTitle: '자동 저장할 PNG 폴더 지정',
+          );
+          if (directory == null || directory.isEmpty || !mounted) return;
+          await _exportSettings.setDirectory(directory);
+        }
+        await _exportSettings.setAutoSave(true);
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = '캡쳐 시 자동 저장 켜짐: ${_exportSettings.directory}';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _statusMessage = '자동 저장 설정 실패: $e');
     } finally {
       if (mounted) setState(() => _exportBusy = false);
     }
@@ -757,9 +813,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 onCopyClipboard: _copyToClipboard,
                 onSaveFile: _saveToFile,
                 saveDirectory: _exportSettings.directory,
+                autoSaveEnabled: _exportSettings.autoSave,
                 isExportBusy: _exportSettingsLoading || _exportBusy,
                 onChooseSaveDirectory: _changeSaveDirectory,
                 onClearSaveDirectory: () => _changeSaveDirectory(clear: true),
+                onToggleAutoSave: _toggleAutoSave,
                 onSaveFileAs: () => _saveToFile(chooseLocation: true),
                 onOpenShortcutSettings: _openShortcutSettings,
                 onOpenUpdateDialog: _openUpdateDialog,
