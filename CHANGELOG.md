@@ -2,6 +2,10 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.28
+- `lib/main.dart`의 워크스페이스 상태·비즈니스 로직을 `WorkspaceController` (`lib/controllers/workspace_controller.dart`)로 분리하여 유지보수성 및 단위 테스트 가능성 개선
+- `pubspec.yaml` 패키지 설명 및 `README.md` 기능·구조 문서 최신화
+
 ## v1.0.27
 - Windows 로컬 OCR 지원 추가: Windows 10/11 내장 WinRT `Windows.Media.Ocr` 엔진 연동 (`OcrService`)
 - Windows 멀티 포맷 클립보드 채널(`snap_craft/clipboard`) 구현: `PNG`, `CF_DIB`, `CF_HDROP`, `CF_UNICODETEXT` 동시 기록으로 GUI 앱 이미지 붙여넣기와 터미널 AI 에이전트 파일 경로 붙여넣기 모두 지원

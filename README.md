@@ -20,7 +20,8 @@
      * 창 선택 캡쳐: `Cmd(Ctrl) + Shift + W`
    * 상단 키보드 설정 아이콘을 눌러 원하는 단축키 조합으로 직접 변경 및 영구 저장 가능
 
-3. **7종 마크업(주석) 편집기 및 이미지 자르기(Crop)**
+3. **8종 마크업(주석) 편집기, 줌/팬 및 이미지 자르기(Crop)**
+   * **선택 (`Select`)**: 추가된 주석을 클릭해 선택, 드래그 이동 및 `Delete` 키로 삭제
    * **펜 (`Pen`)**: 자유 곡선 그리기
    * **형광펜 (`Highlighter`)**: 반투명 형광펜 강조
    * **사각형 (`Rectangle`)**: 테두리 박스로 영역 강조
@@ -29,26 +30,28 @@
    * **번호 스탬프 (`Step Counter`)**: 클릭할 때마다 순차적으로 번호(①, ②, ③)가 증가하는 원형 마크 추가 (튜토리얼 및 버그 재현 단계 작성에 최적화)
    * **보안 가림 (`Redaction`)**: 드래그한 영역을 불투명 검정색으로 가리고 클립보드 자동 복사
    * **이미지 자르기 (`Crop`)**: 원하는 영역만 드래그하여 자르기(Enter: 적용, ESC: 취소) 및 마크업 포함 리사이즈
+   * **캔버스 확대/축소 (`Zoom & Pan`)**: `Cmd/Ctrl + 마우스 휠` 또는 우측 하단 줌 컨트롤(50%–500%, 100% 초기화) 및 드래그 이동
    * 8종 색상 팔레트, 3단계 굵기(세밀/보통/굵게), **실행 취소(`Cmd/Ctrl + Z`) / 다시 실행(`Cmd/Ctrl + Shift + Z`) / 전체 지우기** 지원
 
-4. **멀티 포맷 클립보드 복사, 에이전트 연동 및 텍스트 추출 (OCR)**
-   * **[텍스트 추출 (OCR)]**: macOS `Vision` 프레임워크 기반으로 캡쳐 이미지 내 한글/영어 텍스트를 고정밀 오프라인 인식하여 텍스트 클립보드 복사 및 편집 다이얼로그 제공
+4. **멀티 포맷 클립보드, 외부 이미지 불러오기, 에이전트 연동 및 로컬 OCR**
+   * **[텍스트 추출 (OCR)]**: macOS `Vision` 및 Windows `Windows.Media.Ocr` 기반으로 캡쳐 이미지 내 한글/영어 텍스트를 고정밀 오프라인 인식하여 텍스트 클립보드 복사 및 편집 다이얼로그 제공
+   * **[이미지 열기 (`Cmd/Ctrl + O`) / 붙여넣기 (`Cmd/Ctrl + V`)]**: 외부 이미지 파일을 열거나 클립보드 이미지를 즉시 불러와 마크업·OCR·재복사 가능
    * **[에이전트용 복사]**: Ghostty, `agy`, Claude Code 등 터미널 AI 에이전트에 즉시 전달할 수 있는 프롬프트 템플릿(`[image: <경로>] 이 스크린샷을 분석해서 설명해줘` / 마크다운 / 파일 절대경로) 원클릭 복사
    * **[화면 핀 고정 (Pin)]**: 캡쳐 이미지를 화면 최상단(Always-on-Top)의 콤팩트 플로팅 창으로 고정하여 코딩/디자인 작업 시 레퍼런스로 활용
-   * 캡쳐 직후 및 **[클립보드 복사(`Cmd/Ctrl + C`)]** 클릭 시:
-     * **일반 앱(카카오톡, 슬랙, 노션, Claude Code 등)**: 고해상도 PNG/TIFF 이미지가 그대로 붙여넣어짐
-     * **터미널 CLI(`agy`, Ghostty 등)**: 마크업이 반영된 이미지 파일 경로(`fileURL` / `string`)가 자동으로 붙여넣어져 멀티모달 에이전트가 즉시 인식
+   * 캡쳐 직후 및 **[클립보드 복사(`Cmd/Ctrl + C`)]** 클릭 시 (macOS & Windows 공통):
+     * **일반 앱(카카오톡, 슬랙, 노션, Claude Code 등)**: 고해상도 PNG/TIFF/DIB 이미지가 그대로 붙여넣어짐
+     * **터미널 CLI(`agy`, Ghostty 등)**: 마크업이 반영된 이미지 파일 경로(`fileURL` / `CF_HDROP` / `string`)가 자동으로 붙여넣어져 멀티모달 에이전트가 즉시 인식
    * **[PNG 저장(`Cmd/Ctrl + S`)]**: 원하는 폴더에 원본 해상도 PNG 파일로 저장
      * 버튼 옆 **PNG 저장 옵션(▼)**에서 저장 폴더를 지정하면 이후에는 대화상자 없이 해당 폴더에 저장하며, 앱을 다시 실행해도 설정이 유지됩니다. 같은 파일명은 번호를 붙여 보존합니다.
      * **PNG 저장 옵션(▼)** → **캡쳐 시 자동 저장**을 켜면 새로 캡쳐할 때마다 지정된 폴더에 자동으로 PNG 파일을 저장합니다.
      * 메뉴에서 폴더를 변경하거나 지정을 해제할 수 있습니다. **다른 위치에 저장…**은 지정 폴더를 바꾸지 않고 한 번만 다른 위치에 저장합니다. 폴더를 지정하지 않으면 기존 저장 대화상자가 열립니다.
    * 좌측 **최근 캡쳐 목록 사이드바**에서 여러 캡쳐본 간 전환 및 재편집 지원
 
-5. **시스템 트레이 상주 및 글로벌 단축키 백그라운드 동작**
+5. **시스템 트레이 상주, 로그인 시 자동 실행 및 백그라운드 동작**
    * macOS 상단 메뉴바 및 Windows 시스템 트레이 아이콘 지원
    * 창 닫기(`X`) 버튼 클릭 시 앱이 종료되지 않고 백그라운드에 상주하여 언제든 글로벌 단축키로 즉시 캡쳐 가능
-   * 메뉴바 아이콘 클릭 시 메인 창 복원 및 포커스, 우클릭 시 모드별 빠른 캡쳐 / 앱 열기 / 종료 메뉴 제공
-   * 단축키 및 시스템 설정 다이얼로그에서 트레이 숨김 모드 On/Off 토글 지원
+   * 메뉴바 아이콘 클릭 시 메인 창 복원 및 포커스, 우클릭 시 모드별 빠른 캡쳐 / 앱 열기 / 종료 메뉴(실제 단축키 실시간 반영) 제공
+   * 단축키 및 시스템 설정 다이얼로그에서 트레이 숨김 모드 및 **OS 로그인 시 자동 실행(`--start-minimized`)** On/Off 토글 지원
 
 6. **인앱 자동 업데이트 (`UpdateService`)**
    * 앱 시작 시 GitHub Releases(`sungback/SnapCraft`)의 최신 버전을 확인하고, 새 버전이 있으면 상단에 업데이트 배지 표시
@@ -60,18 +63,21 @@
 
 ```text
 lib/
-├── main.dart                          # 앱 초기화 및 메인 워크스페이스 화면
+├── main.dart                          # 앱 부트스트랩, 윈도우 수명주기 및 화면 조합
+├── controllers/
+│   └── workspace_controller.dart      # 히스토리, 마크업, 자르기, 내보내기 상태 관리
 ├── models/
-│   ├── annotation.dart                # 7종 마크업 도구 및 주석 데이터 모델
+│   ├── annotation.dart                # 8종 마크업/선택 도구 및 주석 데이터 모델
 │   └── capture_item.dart              # 캡쳐 이미지 메타데이터 및 Undo/Redo 히스토리
 ├── services/
 │   ├── capture_files.dart             # 캡쳐 임시 파일 보존 및 오래된 파일 정리
-│   ├── capture_service.dart           # 창 자동 숨김/복원 및 OS 네이티브 캡쳐 연동
+│   ├── capture_service.dart           # 창 자동 숨김/복원, 파일/클립보드 이미지 임포트, 캡쳐 연동
 │   ├── export_service.dart            # 마크업 캔버스 렌더링, 멀티 포맷 클립보드, PNG 저장
 │   ├── export_settings_service.dart   # PNG 저장 폴더 및 자동 저장 설정 영구 저장
 │   ├── hotkey_service.dart            # 글로벌 단축키 등록 및 설정 저장
-│   ├── ocr_service.dart               # macOS Vision 기반 로컬 텍스트 추출(OCR)
-│   ├── tray_service.dart              # 시스템 트레이(메뉴바) 상주 및 빠른 메뉴
+│   ├── ocr_service.dart               # macOS Vision / Windows WinRT 로컬 텍스트 추출(OCR)
+│   ├── startup_service.dart           # OS 로그인 시 자동 실행(LaunchAgent / Run 레지스트리)
+│   ├── tray_service.dart              # 시스템 트레이(메뉴바) 상주 및 동적 단축키 메뉴
 │   ├── update_installer_macos.dart    # macOS 인앱 업데이트 설치기
 │   ├── update_installer_windows.dart  # Windows 인앱 업데이트 설치기
 │   ├── update_scripts.dart            # 업데이트 교체/복구 스크립트 생성
@@ -79,10 +85,11 @@ lib/
 │   ├── windows_region_capture.dart    # Windows 영역 캡쳐 결과 대기 및 수신
 │   └── windows_update_process.dart    # Windows 업데이트 프로세스 실행기
 └── widgets/
-    ├── annotation_canvas.dart         # 원본 해상도 좌표계 기반 인터랙티브 드로잉 캔버스
+    ├── annotation_canvas.dart         # 원본 해상도 좌표계 기반 줌/팬·선택·드로잉 캔버스
+    ├── empty_workspace.dart           # 초기 안내 및 빠른 캡쳐 시작 화면
     ├── history_sidebar.dart           # 최근 캡쳐 썸네일 히스토리 사이드바
     ├── ocr_result_dialog.dart         # OCR 추출 결과 확인/편집/복사 다이얼로그
-    ├── shortcut_settings_dialog.dart  # 글로벌 단축키 및 트레이 설정 모달
+    ├── shortcut_settings_dialog.dart  # 글로벌 단축키·트레이·자동 실행 설정 모달
     ├── top_toolbar.dart               # 캡쳐 모드 및 마크업 도구 상단 툴바
     └── update_dialog.dart             # 업데이트 확인/진행 다이얼로그
 ```

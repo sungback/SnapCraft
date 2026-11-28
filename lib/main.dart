@@ -1,25 +1,19 @@
-import 'dart:io';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:pasteboard/pasteboard.dart';
-import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'models/annotation.dart';
+import 'controllers/workspace_controller.dart';
 import 'models/capture_item.dart';
-import 'services/capture_service.dart';
-import 'services/capture_files.dart';
 import 'services/export_service.dart';
-import 'services/export_settings_service.dart';
 import 'services/hotkey_service.dart';
-import 'services/ocr_service.dart';
 import 'services/startup_service.dart';
 import 'services/tray_service.dart';
 import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
+import 'widgets/empty_workspace.dart';
 import 'widgets/history_sidebar.dart';
 import 'widgets/ocr_result_dialog.dart';
 import 'widgets/shortcut_settings_dialog.dart';
@@ -92,78 +86,33 @@ class SnapCraftHomeScreen extends StatefulWidget {
 
 class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     with WindowListener {
-  static const _maxHistoryItems = 20;
-  static const _maxHistoryBytes = 256 * 1024 * 1024;
-  final List<CaptureItem> _history = [];
-
-  void _releaseCapture(CaptureItem item) {
-    // Painters from the previous frame must finish before their image is released.
-    WidgetsBinding.instance.addPostFrameCallback((_) => item.dispose());
-    unawaited(CaptureFiles.deleteOriginal(item.filePath));
-  }
-
-  bool _trimHistory() {
-    int size(CaptureItem item) =>
-        item.originalBytes.length + item.width * item.height * 4;
-    var bytes = _history.fold<int>(0, (total, item) => total + size(item));
-    var trimmed = false;
-    while (_history.length > 1 &&
-        (_history.length > _maxHistoryItems || bytes > _maxHistoryBytes)) {
-      final oldest = _history.removeLast();
-      bytes -= size(oldest);
-      _releaseCapture(oldest);
-      trimmed = true;
-    }
-    return trimmed;
-  }
-
-  CaptureItem? _selectedItem;
-  String? _selectedAnnotationId;
-  int _clipboardRequest = 0;
-
-  AnnotationTool _selectedTool = AnnotationTool.pen;
-  Color _selectedColor = TopToolbar.paletteColors.first;
-  double _strokeWidth = 5.0;
-
-  bool _isCropping = false;
-  Rect? _cropRect;
+  final WorkspaceController _controller = WorkspaceController();
 
   bool _isPinned = false;
   Size? _savedWindowSize;
   Offset? _savedWindowPosition;
-  bool _isOcrRunning = false;
-
-  bool _isCapturing = false;
-  final _exportSettings = ExportSettingsService();
-  bool _exportSettingsLoading = true;
-  bool _exportBusy = false;
-  bool _hideWindowDuringCapture = true;
   String _appVersion = UpdateService.defaultVersion;
   ReleaseInfo? _latestReleaseInfo;
-  String _statusMessage = '준비됨 · 상단 버튼 또는 글로벌 단축키로 화면을 캡쳐하세요.';
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
     _initServices();
-    _loadExportSettings();
+    _controller.loadExportSettings();
   }
 
   @override
   void dispose() {
-    _clipboardRequest++;
     windowManager.removeListener(this);
-    for (final item in _history) {
-      _releaseCapture(item);
-    }
+    _controller.dispose();
     TrayService.instance.dispose();
     super.dispose();
   }
 
   @override
   Future<void> onWindowClose() async {
-    if (!_isCapturing) {
+    if (!_controller.isCapturing) {
       if (TrayService.instance.closeToTray) {
         await windowManager.hide();
       } else {
@@ -185,11 +134,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     unawaited(ExportService.instance.cleanStaleFiles());
     await StartupService.instance.init();
     await HotkeyService.instance.initialize((mode) {
-      _triggerCapture(mode);
+      _controller.triggerCapture(mode);
     });
     await TrayService.instance.init(
       onShowWindow: _showAppWindow,
-      onTriggerCapture: (mode) => _triggerCapture(mode),
+      onTriggerCapture: (mode) => _controller.triggerCapture(mode),
     );
 
     final ver = await UpdateService.instance.getCurrentVersion();
@@ -230,391 +179,84 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     }
   }
 
-  Future<void> _triggerCapture(CaptureMode mode) async {
-    if (_isCapturing) return;
-    _clipboardRequest++;
-
-    setState(() {
-      _isCapturing = true;
-      _isCropping = false;
-      _cropRect = null;
-      _selectedAnnotationId = null;
-      _statusMessage = '화면 캡쳐 진행 중... (ESC 키를 누르면 취소됩니다)';
-    });
-
-    try {
-      final item = await CaptureService.instance.capture(
-        mode,
-        hideAppWindow: _hideWindowDuringCapture,
-      );
-      if (!mounted) {
-        item?.dispose();
-        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
-        return;
-      }
-      setState(() {
-        if (item == null) {
-          _statusMessage = '캡쳐가 취소되었습니다.';
-        } else {
-          _history.insert(0, item);
-          _selectedItem = item;
-          final trimmed = _trimHistory();
-          _statusMessage =
-              '${item.modeLabel} 완료 (${item.resolutionLabel}) · '
-              '${item.copiedToClipboard ? '클립보드에 자동 복사되었습니다.' : '클립보드 복사에 실패했습니다. 복사 버튼으로 다시 시도하세요.'}'
-              '${trimmed ? ' · 보관 한도에 도달해 오래된 캡쳐를 정리했습니다.' : ''}';
-        }
-      });
-      if (item != null &&
-          _exportSettings.autoSave &&
-          _exportSettings.directory != null) {
-        try {
-          final savedPath = await ExportService.instance.saveToFile(
-            item,
-            directory: _exportSettings.directory!,
-          );
-          if (mounted && savedPath != null) {
-            setState(() {
-              _statusMessage = '$_statusMessage · 자동 저장 완료: $savedPath';
-            });
-          }
-        } catch (saveError) {
-          if (mounted) {
-            setState(() {
-              _statusMessage = '$_statusMessage · 자동 저장 실패: $saveError';
-            });
-          }
-        }
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _statusMessage = '캡쳐에 실패했습니다. 화면 기록 권한을 확인한 후 다시 시도하세요. ($error)';
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
-    }
-  }
-
-  void _addAnnotation(AnnotationItem annotation) {
-    final current = _selectedItem;
-    if (current == null) return;
-    setState(() {
-      current.annotations.add(annotation);
-      current.redoStack.clear();
-      _selectedAnnotationId = annotation.id;
-      _statusMessage = '${annotation.tool.label} 주석이 추가되었습니다.';
-    });
-    if (annotation.tool == AnnotationTool.redaction) {
-      unawaited(_copyToClipboard(automatic: true));
-    }
-  }
-
-  void _updateAnnotation(AnnotationItem updated) {
-    final current = _selectedItem;
-    if (current == null) return;
-    final idx = current.annotations.indexWhere((a) => a.id == updated.id);
-    if (idx == -1) return;
-    setState(() {
-      current.annotations[idx] = updated;
-      current.redoStack.clear();
-      _selectedAnnotationId = updated.id;
-      _statusMessage = '${updated.tool.label} 주석을 이동했습니다.';
-    });
-  }
-
-  void _deleteSelectedAnnotation([String? id]) {
-    final current = _selectedItem;
-    final targetId = id ?? _selectedAnnotationId;
-    if (current == null || targetId == null) return;
-    final idx = current.annotations.indexWhere((a) => a.id == targetId);
-    if (idx == -1) return;
-    _clipboardRequest++;
-    setState(() {
-      final removed = current.annotations.removeAt(idx);
-      current.redoStack.clear();
-      if (_selectedAnnotationId == targetId) {
-        _selectedAnnotationId = null;
-      }
-      _statusMessage = '${removed.tool.label} 주석을 삭제했습니다.';
-    });
-  }
-
-  void _handleDeleteKey() {
-    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
-    if (focusWidget is EditableText) return;
-    if (_isCropping) return;
-    if (_selectedAnnotationId != null) {
-      _deleteSelectedAnnotation();
-    }
-  }
-
-  Future<void> _openImageFile() async {
-    if (_isCapturing) return;
-    try {
-      if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
-      final result = await FilePicker.pickFiles(
-        dialogTitle: '이미지 파일 열기',
-        type: FileType.image,
-      );
-      final path = result?.files.single.path;
-      if (path == null || path.isEmpty || !mounted) return;
-
-      final item = await CaptureService.instance.createFromFile(path);
-      if (!mounted) {
-        item?.dispose();
-        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
-        return;
-      }
-      if (item == null) {
-        setState(() => _statusMessage = '이미지 파일을 불러올 수 없습니다.');
-        return;
-      }
-
-      _clipboardRequest++;
-      setState(() {
-        _isCropping = false;
-        _cropRect = null;
-        _selectedAnnotationId = null;
-        _history.insert(0, item);
-        _selectedItem = item;
-        final trimmed = _trimHistory();
-        _statusMessage =
-            '이미지 열기 완료 (${item.resolutionLabel})'
-            '${trimmed ? ' · 보관 한도에 도달해 오래된 항목을 정리했습니다.' : ''}';
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => _statusMessage = '이미지 열기 실패: $e');
-      }
-    }
-  }
-
-  Future<void> _importFromClipboard() async {
-    if (_isCapturing) return;
-    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
-    if (focusWidget is EditableText) return;
-
-    try {
-      final bytes = await Pasteboard.image;
-      if (!mounted) return;
-      if (bytes == null || bytes.isEmpty) {
-        setState(() => _statusMessage = '클립보드에 붙여넣을 이미지가 없습니다.');
-        return;
-      }
-
-      final item = await CaptureService.instance.createFromBytes(
-        bytes,
-        prefix: 'paste',
-      );
-      if (!mounted) {
-        item?.dispose();
-        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
-        return;
-      }
-      if (item == null) return;
-
-      _clipboardRequest++;
-      setState(() {
-        _isCropping = false;
-        _cropRect = null;
-        _selectedAnnotationId = null;
-        _history.insert(0, item);
-        _selectedItem = item;
-        final trimmed = _trimHistory();
-        _statusMessage =
-            '클립보드 이미지 붙여넣기 완료 (${item.resolutionLabel})'
-            '${trimmed ? ' · 보관 한도에 도달해 오래된 항목을 정리했습니다.' : ''}';
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => _statusMessage = '클립보드 이미지 불러오기 실패: $e');
-      }
-    }
-  }
-
-  void _undo() {
-    final current = _selectedItem;
-    if (current == null || current.annotations.isEmpty) return;
-    _clipboardRequest++;
-    setState(() {
-      final last = current.annotations.removeLast();
-      current.redoStack.add(last);
-      if (_selectedAnnotationId == last.id) {
-        _selectedAnnotationId = null;
-      }
-      _statusMessage = '실행 취소됨 (${last.tool.label})';
-    });
-  }
-
-  void _redo() {
-    final current = _selectedItem;
-    if (current == null || current.redoStack.isEmpty) return;
-    _clipboardRequest++;
-    setState(() {
-      final restored = current.redoStack.removeLast();
-      current.annotations.add(restored);
-      _selectedAnnotationId = null;
-      _statusMessage = '다시 실행됨 (${restored.tool.label})';
-    });
-  }
-
-  void _clearAnnotations() {
-    final current = _selectedItem;
-    if (current == null || current.annotations.isEmpty) return;
-    _clipboardRequest++;
-    setState(() {
-      current.annotations.clear();
-      current.redoStack.clear();
-      _selectedAnnotationId = null;
-      _statusMessage = '모든 마크업 주석을 초기화했습니다.';
-    });
-  }
-
-  void _toggleCrop() {
-    if (_isCropping) {
-      _cancelCrop();
-    } else {
-      _startCrop();
-    }
-  }
-
-  void _startCrop() {
-    if (_selectedItem == null) return;
-    setState(() {
-      _isCropping = true;
-      _cropRect = null;
-      _statusMessage = '자르기 모드 · 마우스 드래그로 영역을 지정하세요. (Enter: 적용, ESC: 취소)';
-    });
-  }
-
-  void _cancelCrop() {
-    if (!_isCropping) return;
-    setState(() {
-      _isCropping = false;
-      _cropRect = null;
-      _statusMessage = '자르기가 취소되었습니다.';
-    });
-  }
-
-  Future<void> _applyCrop() async {
-    final current = _selectedItem;
-    final cropRect = _cropRect;
-    if (current == null || cropRect == null || !_isCropping) return;
-    if (cropRect.width < 10 || cropRect.height < 10) {
-      setState(() => _statusMessage = '자르기 영역이 너무 작습니다 (최소 10x10 px).');
-      return;
-    }
-
-    try {
-      final cropped = await ExportService.instance.cropCapture(
-        item: current,
-        cropRect: cropRect,
-      );
-      if (!mounted) {
-        cropped.dispose();
-        unawaited(CaptureFiles.deleteOriginal(cropped.filePath));
-        return;
-      }
-      setState(() {
-        final idx = _history.indexWhere((e) => e.id == current.id);
-        if (idx != -1) {
-          _history[idx] = cropped;
-        } else {
-          _history.insert(0, cropped);
-        }
-        _selectedItem = cropped;
-        _isCropping = false;
-        _cropRect = null;
-        _statusMessage =
-            '이미지를 잘라냈습니다 (${cropped.resolutionLabel}) · 클립보드에 자동 복사 중...';
-      });
-      _releaseCapture(current);
-      unawaited(_copyToClipboard(automatic: true));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = '자르기 실패: $e';
-      });
-    }
-  }
-
   Future<void> _extractText() async {
-    final current = _selectedItem;
-    if (current == null || _isOcrRunning) return;
-    setState(() {
-      _isOcrRunning = true;
-      _statusMessage = '화면 텍스트 인식(OCR) 중...';
-    });
-
-    try {
-      final text = await OcrService.instance.recognizeText(current);
-      if (!mounted) return;
-      if (text == null || text.trim().isEmpty) {
-        setState(() => _statusMessage = '인식된 텍스트가 없습니다.');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('화면에서 인식된 텍스트가 없습니다.'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-            width: 360,
-          ),
-        );
-        return;
-      }
-
-      await Clipboard.setData(ClipboardData(text: text));
-      if (!mounted) return;
-      setState(() => _statusMessage = '텍스트를 추출하여 클립보드에 복사했습니다 (${text.length}자).');
-
-      await showDialog<void>(
-        context: context,
-        builder: (_) => OcrResultDialog(initialText: text),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _statusMessage = '텍스트 추출 실패: $e');
+    final result = await _controller.extractText();
+    if (!mounted) return;
+    if (result.emptyMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('텍스트 추출 실패: $e'),
+          content: Text(result.emptyMessage!),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          width: 360,
+        ),
+      );
+      return;
+    }
+    if (result.errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage!),
           duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
           width: 420,
         ),
       );
-    } finally {
-      if (mounted) setState(() => _isOcrRunning = false);
+      return;
     }
+    final text = result.text;
+    if (text == null) return;
+
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => OcrResultDialog(initialText: text),
+    );
   }
 
   Future<void> _copyForAgent(String template) async {
-    final current = _selectedItem;
-    if (current == null) return;
+    final ok = await _controller.copyForAgent(template);
+    if (!mounted || !ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('에이전트용 프롬프트가 클립보드에 복사되었습니다!'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        width: 380,
+      ),
+    );
+  }
 
-    try {
-      final text = await ExportService.instance.copyForAgent(
-        current,
-        template: template,
-      );
-      if (!mounted || text == null) return;
-      setState(() => _statusMessage = '에이전트용 프롬프트가 클립보드에 복사되었습니다.');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('에이전트용 프롬프트가 클립보드에 복사되었습니다!'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          width: 380,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _statusMessage = '에이전트 복사 실패: $e');
-    }
+  Future<void> _copyToClipboard() async {
+    final ok = await _controller.copyToClipboard();
+    if (!mounted || !ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('클립보드에 복사되었습니다 (Cmd/Ctrl + V로 붙여넣기 가능)'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        width: 420,
+      ),
+    );
+  }
+
+  Future<void> _saveToFile({bool chooseLocation = false}) async {
+    final savedPath = await _controller.saveToFile(
+      chooseLocation: chooseLocation,
+    );
+    if (!mounted || savedPath == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('PNG 저장 완료: $savedPath'),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _togglePinMode() async {
-    final current = _selectedItem;
+    final current = _controller.selectedItem;
     if (current == null) return;
 
     if (_isPinned) {
@@ -627,205 +269,40 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       }
       setState(() {
         _isPinned = false;
-        _statusMessage = '핀 고정 모드가 해제되었습니다.';
       });
+      _controller.setStatusMessage('핀 고정 모드가 해제되었습니다.');
     } else {
       try {
         _savedWindowSize = await windowManager.getSize();
         _savedWindowPosition = await windowManager.getPosition();
       } catch (_) {}
 
-      final double targetW = 420.0;
-      final double ratio = current.height / current.width;
-      final double targetH = (targetW * ratio).clamp(200.0, 600.0) + 48.0;
+      const targetW = 420.0;
+      final ratio = current.height / current.width;
+      final targetH = (targetW * ratio).clamp(200.0, 600.0) + 48.0;
 
       await windowManager.setAlwaysOnTop(true);
       await windowManager.setSize(Size(targetW, targetH));
       setState(() {
         _isPinned = true;
-        _statusMessage = '화면 핀 고정 모드 (항상 최상단)';
       });
+      _controller.setStatusMessage('화면 핀 고정 모드 (항상 최상단)');
     }
   }
 
-  Future<void> _copyToClipboard({bool automatic = false}) async {
-    final current = _selectedItem;
-    if (current == null) return;
-    final request = ++_clipboardRequest;
-    bool isCurrent() =>
-        mounted && request == _clipboardRequest && _selectedItem == current;
-
-    setState(() {
-      _statusMessage = automatic
-          ? '보안 가림 이미지를 클립보드에 자동 복사 중...'
-          : '클립보드에 이미지 복사 중...';
-    });
-
-    final ok = await ExportService.instance.copyToClipboard(
-      current,
-      shouldCopy: isCurrent,
-    );
-    if (!mounted || !isCurrent()) return;
-
-    setState(() {
-      _statusMessage = automatic
-          ? (ok
-                ? '보안 가림이 반영된 이미지를 클립보드에 자동 복사했습니다.'
-                : '보안 가림 이미지 자동 복사에 실패했습니다. 복사 버튼으로 다시 시도하세요.')
-          : (ok ? '마크업이 반영된 이미지를 클립보드에 복사했습니다!' : '클립보드 복사에 실패했습니다.');
-    });
-
-    if (ok && !automatic) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('클립보드에 복사되었습니다 (Cmd/Ctrl + V로 붙여넣기 가능)'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          width: 420,
-        ),
-      );
-    }
+  void _handlePasteShortcut() {
+    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
+    if (focusWidget is EditableText) return;
+    unawaited(_controller.importFromClipboard());
   }
 
-  Future<void> _loadExportSettings() async {
-    try {
-      await _exportSettings.load();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _statusMessage = '저장 폴더 설정을 불러오지 못했습니다: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _exportSettingsLoading = false);
+  void _handleDeleteKey() {
+    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
+    if (focusWidget is EditableText) return;
+    if (_controller.isCropping) return;
+    if (_controller.selectedAnnotationId != null) {
+      _controller.deleteSelectedAnnotation();
     }
-  }
-
-  Future<void> _changeSaveDirectory({bool clear = false}) async {
-    if (_exportSettingsLoading || _exportBusy) return;
-    setState(() => _exportBusy = true);
-    try {
-      String? directory;
-      if (!clear) {
-        String? initialDirectory;
-        final previousDirectory = _exportSettings.directory;
-        if (previousDirectory != null) {
-          try {
-            if (await Directory(previousDirectory).exists()) {
-              initialDirectory = previousDirectory;
-            }
-          } on FileSystemException {
-            // A disconnected or inaccessible folder must not block choosing another.
-          }
-        }
-        if (!mounted) return;
-        if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
-        directory = await FilePicker.getDirectoryPath(
-          dialogTitle: 'PNG 저장 폴더 지정',
-          initialDirectory: initialDirectory,
-        );
-        if (directory == null || directory.isEmpty || !mounted) return;
-      }
-      final hadAutoSave = _exportSettings.autoSave;
-      await _exportSettings.setDirectory(directory);
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = directory == null
-            ? (hadAutoSave
-                  ? '저장 폴더 지정을 해제하고 자동 저장을 껐습니다.'
-                  : '저장 폴더 지정을 해제했습니다.')
-            : 'PNG 저장 폴더: $directory';
-      });
-    } catch (e) {
-      if (mounted) setState(() => _statusMessage = '저장 폴더 설정 실패: $e');
-    } finally {
-      if (mounted) setState(() => _exportBusy = false);
-    }
-  }
-
-  Future<void> _toggleAutoSave() async {
-    if (_exportSettingsLoading || _exportBusy) return;
-    setState(() => _exportBusy = true);
-    try {
-      if (_exportSettings.autoSave) {
-        await _exportSettings.setAutoSave(false);
-        if (!mounted) return;
-        setState(() {
-          _statusMessage = '캡쳐 시 자동 저장을 껐습니다.';
-        });
-      } else {
-        if (_exportSettings.directory == null) {
-          if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
-          final directory = await FilePicker.getDirectoryPath(
-            dialogTitle: '자동 저장할 PNG 폴더 지정',
-          );
-          if (directory == null || directory.isEmpty || !mounted) return;
-          await _exportSettings.setDirectory(directory);
-        }
-        await _exportSettings.setAutoSave(true);
-        if (!mounted) return;
-        setState(() {
-          _statusMessage = '캡쳐 시 자동 저장 켜짐: ${_exportSettings.directory}';
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _statusMessage = '자동 저장 설정 실패: $e');
-    } finally {
-      if (mounted) setState(() => _exportBusy = false);
-    }
-  }
-
-  Future<void> _saveToFile({bool chooseLocation = false}) async {
-    final current = _selectedItem;
-    if (current == null || _exportSettingsLoading || _exportBusy) return;
-    final directory = chooseLocation ? null : _exportSettings.directory;
-    setState(() => _exportBusy = true);
-
-    try {
-      final savedPath = await ExportService.instance.saveToFile(
-        current,
-        directory: directory,
-      );
-      if (!mounted || savedPath == null) return;
-
-      setState(() {
-        _statusMessage = '파일 저장 완료: $savedPath';
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('PNG 저장 완료: $savedPath'),
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = '파일 저장 실패: $e · PNG 저장 옵션에서 폴더를 변경하거나 다른 위치에 저장하세요.';
-      });
-    } finally {
-      if (mounted) setState(() => _exportBusy = false);
-    }
-  }
-
-  void _deleteCaptureItem(CaptureItem item) {
-    _clipboardRequest++;
-    setState(() {
-      _isCropping = false;
-      _cropRect = null;
-      _selectedAnnotationId = null;
-      final idx = _history.indexWhere((e) => e.id == item.id);
-      _history.removeWhere((e) => e.id == item.id);
-      if (_selectedItem?.id == item.id) {
-        if (_history.isEmpty) {
-          _selectedItem = null;
-        } else {
-          final nextIdx = idx.clamp(0, _history.length - 1);
-          _selectedItem = _history[nextIdx];
-        }
-      }
-      _statusMessage = '캡쳐 항목을 목록에서 삭제했습니다.';
-    });
-    _releaseCapture(item);
   }
 
   Future<void> _openShortcutSettings() async {
@@ -834,9 +311,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       builder: (_) => ShortcutSettingsDialog(
         onShortcutsUpdated: () {
           unawaited(TrayService.instance.updateContextMenu());
-          setState(() {
-            _statusMessage = '글로벌 단축키 설정이 업데이트되었습니다.';
-          });
+          _controller.setStatusMessage('글로벌 단축키 설정이 업데이트되었습니다.');
         },
       ),
     );
@@ -855,346 +330,202 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final current = _selectedItem;
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        final current = _controller.selectedItem;
 
-    if (_isPinned && current != null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF14161C),
-        body: Column(
-          children: [
-            Container(
-              height: 40,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              color: const Color(0xFF1E2028),
-              child: Row(
+        if (_isPinned && current != null) {
+          return _buildPinnedView(current);
+        }
+
+        return CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+                _controller.undo,
+            const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+                _controller.undo,
+            const SingleActivator(
+              LogicalKeyboardKey.keyZ,
+              meta: true,
+              shift: true,
+            ): _controller.redo,
+            const SingleActivator(
+              LogicalKeyboardKey.keyZ,
+              control: true,
+              shift: true,
+            ): _controller.redo,
+            const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+                _copyToClipboard,
+            const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+                _copyToClipboard,
+            const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+                _saveToFile,
+            const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                _saveToFile,
+            const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
+                _controller.openImageFile,
+            const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+                _controller.openImageFile,
+            const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                _handlePasteShortcut,
+            const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                _handlePasteShortcut,
+            const SingleActivator(LogicalKeyboardKey.delete): _handleDeleteKey,
+            const SingleActivator(LogicalKeyboardKey.backspace):
+                _handleDeleteKey,
+            const SingleActivator(LogicalKeyboardKey.escape):
+                _controller.cancelCrop,
+            const SingleActivator(LogicalKeyboardKey.enter):
+                _controller.applyCrop,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Scaffold(
+              body: Column(
                 children: [
-                  const Icon(
-                    Icons.push_pin_rounded,
-                    size: 16,
-                    color: Color(0xFF60A5FA),
+                  TopToolbar(
+                    hasActiveCapture: current != null,
+                    isCapturing: _controller.isCapturing,
+                    selectedTool: _controller.selectedTool,
+                    selectedColor: _controller.selectedColor,
+                    strokeWidth: _controller.strokeWidth,
+                    canUndo: current != null && current.annotations.isNotEmpty,
+                    canRedo: current != null && current.redoStack.isNotEmpty,
+                    onTriggerCapture: _controller.triggerCapture,
+                    onSelectTool: _controller.selectTool,
+                    onSelectColor: _controller.selectColor,
+                    onSelectStrokeWidth: _controller.selectStrokeWidth,
+                    onUndo: _controller.undo,
+                    onRedo: _controller.redo,
+                    onClearAnnotations: _controller.clearAnnotations,
+                    onCopyClipboard: _copyToClipboard,
+                    onSaveFile: _saveToFile,
+                    saveDirectory: _controller.saveDirectory,
+                    autoSaveEnabled: _controller.autoSaveEnabled,
+                    isExportBusy: _controller.isExportBusy,
+                    onChooseSaveDirectory: _controller.changeSaveDirectory,
+                    onClearSaveDirectory: () =>
+                        _controller.changeSaveDirectory(clear: true),
+                    onToggleAutoSave: _controller.toggleAutoSave,
+                    onSaveFileAs: () => _saveToFile(chooseLocation: true),
+                    onOpenShortcutSettings: _openShortcutSettings,
+                    onOpenUpdateDialog: _openUpdateDialog,
+                    availableUpdateVersion:
+                        (_latestReleaseInfo?.hasUpdate ?? false)
+                        ? _latestReleaseInfo?.latestVersion
+                        : null,
+                    isCropping: _controller.isCropping,
+                    onToggleCrop: _controller.toggleCrop,
+                    onExtractText: _extractText,
+                    onCopyForAgent: _copyForAgent,
+                    isPinned: _isPinned,
+                    onTogglePin: _togglePinMode,
+                    onOpenImageFile: _controller.openImageFile,
+                    hasSelectedAnnotation:
+                        _controller.selectedAnnotationId != null,
+                    onDeleteSelectedAnnotation:
+                        _controller.deleteSelectedAnnotation,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '핀 고정 (${current.resolutionLabel})',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white70,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        HistorySidebar(
+                          items: _controller.history,
+                          selectedItem: current,
+                          onSelectItem: _controller.selectItem,
+                          onDeleteItem: _controller.deleteCaptureItem,
+                        ),
+                        Expanded(
+                          child: Container(
+                            color: const Color(0xFF14161C),
+                            child: current == null
+                                ? EmptyWorkspaceView(
+                                    onTriggerCapture:
+                                        _controller.triggerCapture,
+                                  )
+                                : AnnotationCanvas(
+                                    key: ValueKey(current.id),
+                                    captureItem: current,
+                                    selectedTool: _controller.selectedTool,
+                                    selectedColor: _controller.selectedColor,
+                                    strokeWidth: _controller.strokeWidth,
+                                    onAddAnnotation: _controller.addAnnotation,
+                                    selectedAnnotationId:
+                                        _controller.selectedAnnotationId,
+                                    onSelectAnnotation:
+                                        _controller.selectAnnotation,
+                                    onUpdateAnnotation:
+                                        _controller.updateAnnotation,
+                                    onDeleteAnnotation:
+                                        _controller.deleteSelectedAnnotation,
+                                    isCropping: _controller.isCropping,
+                                    cropRect: _controller.cropRect,
+                                    onCropRectChanged: _controller.setCropRect,
+                                    onApplyCrop: _controller.applyCrop,
+                                    onCancelCrop: _controller.cancelCrop,
+                                  ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: _togglePinMode,
-                    tooltip: '원래 크기로 복귀',
-                    icon: const Icon(Icons.open_in_full_rounded, size: 16),
-                    color: Colors.white70,
-                  ),
+                  _buildBottomStatusBar(current),
                 ],
               ),
             ),
-            Expanded(
-              child: AnnotationCanvas(
-                key: ValueKey(current.id),
-                captureItem: current,
-                selectedTool: _selectedTool,
-                selectedColor: _selectedColor,
-                strokeWidth: _strokeWidth,
-                onAddAnnotation: _addAnnotation,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
-        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
-        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
-            _redo,
-        const SingleActivator(
-          LogicalKeyboardKey.keyZ,
-          control: true,
-          shift: true,
-        ): _redo,
-        const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
-            _copyToClipboard,
-        const SingleActivator(LogicalKeyboardKey.keyC, control: true):
-            _copyToClipboard,
-        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _saveToFile,
-        const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-            _saveToFile,
-        const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
-            _openImageFile,
-        const SingleActivator(LogicalKeyboardKey.keyO, control: true):
-            _openImageFile,
-        const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-            _importFromClipboard,
-        const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-            _importFromClipboard,
-        const SingleActivator(LogicalKeyboardKey.delete): _handleDeleteKey,
-        const SingleActivator(LogicalKeyboardKey.backspace): _handleDeleteKey,
-        const SingleActivator(LogicalKeyboardKey.escape): _cancelCrop,
-        const SingleActivator(LogicalKeyboardKey.enter): _applyCrop,
-      },
-      child: Focus(
-        autofocus: true,
-        child: Scaffold(
-          body: Column(
-            children: [
-              TopToolbar(
-                hasActiveCapture: current != null,
-                isCapturing: _isCapturing,
-                selectedTool: _selectedTool,
-                selectedColor: _selectedColor,
-                strokeWidth: _strokeWidth,
-                canUndo: current != null && current.annotations.isNotEmpty,
-                canRedo: current != null && current.redoStack.isNotEmpty,
-                onTriggerCapture: _triggerCapture,
-                onSelectTool: (tool) => setState(() {
-                  _selectedTool = tool;
-                  if (tool != AnnotationTool.select) {
-                    _selectedAnnotationId = null;
-                  }
-                }),
-                onSelectColor: (color) =>
-                    setState(() => _selectedColor = color),
-                onSelectStrokeWidth: (w) => setState(() => _strokeWidth = w),
-                onUndo: _undo,
-                onRedo: _redo,
-                onClearAnnotations: _clearAnnotations,
-                onCopyClipboard: _copyToClipboard,
-                onSaveFile: _saveToFile,
-                saveDirectory: _exportSettings.directory,
-                autoSaveEnabled: _exportSettings.autoSave,
-                isExportBusy: _exportSettingsLoading || _exportBusy,
-                onChooseSaveDirectory: _changeSaveDirectory,
-                onClearSaveDirectory: () => _changeSaveDirectory(clear: true),
-                onToggleAutoSave: _toggleAutoSave,
-                onSaveFileAs: () => _saveToFile(chooseLocation: true),
-                onOpenShortcutSettings: _openShortcutSettings,
-                onOpenUpdateDialog: _openUpdateDialog,
-                availableUpdateVersion: (_latestReleaseInfo?.hasUpdate ?? false)
-                    ? _latestReleaseInfo?.latestVersion
-                    : null,
-                isCropping: _isCropping,
-                onToggleCrop: _toggleCrop,
-                onExtractText: _extractText,
-                onCopyForAgent: _copyForAgent,
-                isPinned: _isPinned,
-                onTogglePin: _togglePinMode,
-                onOpenImageFile: _openImageFile,
-                hasSelectedAnnotation: _selectedAnnotationId != null,
-                onDeleteSelectedAnnotation: _deleteSelectedAnnotation,
-              ),
-              Expanded(
-                child: Row(
-                  children: [
-                    HistorySidebar(
-                      items: _history,
-                      selectedItem: current,
-                      onSelectItem: (item) {
-                        _clipboardRequest++;
-                        setState(() {
-                          _isCropping = false;
-                          _cropRect = null;
-                          _selectedAnnotationId = null;
-                          _selectedItem = item;
-                        });
-                      },
-                      onDeleteItem: _deleteCaptureItem,
-                    ),
-                    Expanded(
-                      child: Container(
-                        color: const Color(0xFF14161C),
-                        child: current == null
-                            ? _buildEmptyState()
-                            : AnnotationCanvas(
-                                key: ValueKey(current.id),
-                                captureItem: current,
-                                selectedTool: _selectedTool,
-                                selectedColor: _selectedColor,
-                                strokeWidth: _strokeWidth,
-                                onAddAnnotation: _addAnnotation,
-                                selectedAnnotationId: _selectedAnnotationId,
-                                onSelectAnnotation: (id) =>
-                                    setState(() => _selectedAnnotationId = id),
-                                onUpdateAnnotation: _updateAnnotation,
-                                onDeleteAnnotation: _deleteSelectedAnnotation,
-                                isCropping: _isCropping,
-                                cropRect: _cropRect,
-                                onCropRectChanged: (r) =>
-                                    setState(() => _cropRect = r),
-                                onApplyCrop: _applyCrop,
-                                onCancelCrop: _cancelCrop,
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _buildBottomStatusBar(current),
-            ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildEmptyState() {
-    final hotkeyService = HotkeyService.instance;
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3B82F6).withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFF3B82F6).withValues(alpha: 0.35),
-                  ),
-                ),
-                child: const Icon(
-                  Icons.camera_enhance_rounded,
-                  size: 34,
+  Widget _buildPinnedView(CaptureItem current) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF14161C),
+      body: Column(
+        children: [
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            color: const Color(0xFF1E2028),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.push_pin_rounded,
+                  size: 16,
                   color: Color(0xFF60A5FA),
                 ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                '원하는 캡쳐 모드를 선택해 시작하세요',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                const SizedBox(width: 8),
+                Text(
+                  '핀 고정 (${current.resolutionLabel})',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '캡쳐 즉시 클립보드에 자동 복사되며, 펜·형광펜·사각형·화살표·텍스트·보안 가림으로\n빠르게 마크업한 뒤 재복사하거나 PNG 파일로 저장할 수 있습니다.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  color: Colors.white60,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 26),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildQuickStartCard(
-                      icon: Icons.crop_free_rounded,
-                      title: '영역 지정 캡쳐',
-                      shortcut: hotkeyService.formatHotKey(CaptureMode.region),
-                      description: '원하는 영역만 마우스로 드래그하여 캡쳐',
-                      onTap: () => _triggerCapture(CaptureMode.region),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildQuickStartCard(
-                      icon: Icons.fullscreen_rounded,
-                      title: '전체 화면 캡쳐',
-                      shortcut: hotkeyService.formatHotKey(CaptureMode.screen),
-                      description: '현재 모니터 전체 화면을 즉시 캡쳐',
-                      onTap: () => _triggerCapture(CaptureMode.screen),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildQuickStartCard(
-                      icon: Icons.web_asset_rounded,
-                      title: '창 선택 캡쳐',
-                      shortcut: hotkeyService.formatHotKey(CaptureMode.window),
-                      description: '특정 애플리케이션 창만 깔끔하게 캡쳐',
-                      onTap: () => _triggerCapture(CaptureMode.window),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickStartCard({
-    required IconData icon,
-    required String title,
-    required String shortcut,
-    required String description,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E212B),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF2E3240)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Icon(icon, size: 22, color: const Color(0xFF60A5FA)),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF14161C),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    shortcut,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF93C5FD),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                const Spacer(),
+                IconButton(
+                  onPressed: _togglePinMode,
+                  tooltip: '원래 크기로 복귀',
+                  icon: const Icon(Icons.open_in_full_rounded, size: 16),
+                  color: Colors.white70,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
+          ),
+          Expanded(
+            child: AnnotationCanvas(
+              key: ValueKey(current.id),
+              captureItem: current,
+              selectedTool: _controller.selectedTool,
+              selectedColor: _controller.selectedColor,
+              strokeWidth: _controller.strokeWidth,
+              onAddAnnotation: _controller.addAnnotation,
             ),
-            const SizedBox(height: 5),
-            Text(
-              description,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.white54,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1217,7 +548,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
           const SizedBox(width: 7),
           Expanded(
             child: Text(
-              _statusMessage,
+              _controller.statusMessage,
               style: const TextStyle(fontSize: 12, color: Colors.white70),
               overflow: TextOverflow.ellipsis,
             ),
@@ -1230,11 +561,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
             const SizedBox(width: 14),
           ],
           InkWell(
-            onTap: () {
-              setState(() {
-                _hideWindowDuringCapture = !_hideWindowDuringCapture;
-              });
-            },
+            onTap: _controller.toggleHideWindowDuringCapture,
             borderRadius: BorderRadius.circular(4),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -1242,11 +569,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    _hideWindowDuringCapture
+                    _controller.hideWindowDuringCapture
                         ? Icons.check_box_rounded
                         : Icons.check_box_outline_blank_rounded,
                     size: 15,
-                    color: _hideWindowDuringCapture
+                    color: _controller.hideWindowDuringCapture
                         ? const Color(0xFF60A5FA)
                         : Colors.white54,
                   ),
