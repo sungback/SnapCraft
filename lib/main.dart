@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -15,6 +16,7 @@ import 'services/export_service.dart';
 import 'services/export_settings_service.dart';
 import 'services/hotkey_service.dart';
 import 'services/ocr_service.dart';
+import 'services/startup_service.dart';
 import 'services/tray_service.dart';
 import 'services/update_service.dart';
 import 'widgets/annotation_canvas.dart';
@@ -24,8 +26,9 @@ import 'widgets/shortcut_settings_dialog.dart';
 import 'widgets/top_toolbar.dart';
 import 'widgets/update_dialog.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final startMinimized = args.contains('--start-minimized');
 
   await windowManager.ensureInitialized();
 
@@ -47,8 +50,10 @@ Future<void> main() async {
     await windowManager.setMinimizable(true);
     await windowManager.setMaximizable(true);
     await windowManager.setClosable(true);
-    await windowManager.show();
-    await windowManager.focus();
+    if (!startMinimized) {
+      await windowManager.show();
+      await windowManager.focus();
+    }
   });
 
   runApp(const SnapCraftApp());
@@ -113,6 +118,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
   }
 
   CaptureItem? _selectedItem;
+  String? _selectedAnnotationId;
   int _clipboardRequest = 0;
 
   AnnotationTool _selectedTool = AnnotationTool.pen;
@@ -177,6 +183,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
 
   Future<void> _initServices() async {
     unawaited(ExportService.instance.cleanStaleFiles());
+    await StartupService.instance.init();
     await HotkeyService.instance.initialize((mode) {
       _triggerCapture(mode);
     });
@@ -231,6 +238,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       _isCapturing = true;
       _isCropping = false;
       _cropRect = null;
+      _selectedAnnotationId = null;
       _statusMessage = '화면 캡쳐 진행 중... (ESC 키를 누르면 취소됩니다)';
     });
 
@@ -295,10 +303,134 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     setState(() {
       current.annotations.add(annotation);
       current.redoStack.clear();
+      _selectedAnnotationId = annotation.id;
       _statusMessage = '${annotation.tool.label} 주석이 추가되었습니다.';
     });
     if (annotation.tool == AnnotationTool.redaction) {
       unawaited(_copyToClipboard(automatic: true));
+    }
+  }
+
+  void _updateAnnotation(AnnotationItem updated) {
+    final current = _selectedItem;
+    if (current == null) return;
+    final idx = current.annotations.indexWhere((a) => a.id == updated.id);
+    if (idx == -1) return;
+    setState(() {
+      current.annotations[idx] = updated;
+      current.redoStack.clear();
+      _selectedAnnotationId = updated.id;
+      _statusMessage = '${updated.tool.label} 주석을 이동했습니다.';
+    });
+  }
+
+  void _deleteSelectedAnnotation([String? id]) {
+    final current = _selectedItem;
+    final targetId = id ?? _selectedAnnotationId;
+    if (current == null || targetId == null) return;
+    final idx = current.annotations.indexWhere((a) => a.id == targetId);
+    if (idx == -1) return;
+    _clipboardRequest++;
+    setState(() {
+      final removed = current.annotations.removeAt(idx);
+      current.redoStack.clear();
+      if (_selectedAnnotationId == targetId) {
+        _selectedAnnotationId = null;
+      }
+      _statusMessage = '${removed.tool.label} 주석을 삭제했습니다.';
+    });
+  }
+
+  void _handleDeleteKey() {
+    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
+    if (focusWidget is EditableText) return;
+    if (_isCropping) return;
+    if (_selectedAnnotationId != null) {
+      _deleteSelectedAnnotation();
+    }
+  }
+
+  Future<void> _openImageFile() async {
+    if (_isCapturing) return;
+    try {
+      if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
+      final result = await FilePicker.pickFiles(
+        dialogTitle: '이미지 파일 열기',
+        type: FileType.image,
+      );
+      final path = result?.files.single.path;
+      if (path == null || path.isEmpty || !mounted) return;
+
+      final item = await CaptureService.instance.createFromFile(path);
+      if (!mounted) {
+        item?.dispose();
+        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
+        return;
+      }
+      if (item == null) {
+        setState(() => _statusMessage = '이미지 파일을 불러올 수 없습니다.');
+        return;
+      }
+
+      _clipboardRequest++;
+      setState(() {
+        _isCropping = false;
+        _cropRect = null;
+        _selectedAnnotationId = null;
+        _history.insert(0, item);
+        _selectedItem = item;
+        final trimmed = _trimHistory();
+        _statusMessage =
+            '이미지 열기 완료 (${item.resolutionLabel})'
+            '${trimmed ? ' · 보관 한도에 도달해 오래된 항목을 정리했습니다.' : ''}';
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = '이미지 열기 실패: $e');
+      }
+    }
+  }
+
+  Future<void> _importFromClipboard() async {
+    if (_isCapturing) return;
+    final focusWidget = FocusManager.instance.primaryFocus?.context?.widget;
+    if (focusWidget is EditableText) return;
+
+    try {
+      final bytes = await Pasteboard.image;
+      if (!mounted) return;
+      if (bytes == null || bytes.isEmpty) {
+        setState(() => _statusMessage = '클립보드에 붙여넣을 이미지가 없습니다.');
+        return;
+      }
+
+      final item = await CaptureService.instance.createFromBytes(
+        bytes,
+        prefix: 'paste',
+      );
+      if (!mounted) {
+        item?.dispose();
+        if (item != null) unawaited(CaptureFiles.deleteOriginal(item.filePath));
+        return;
+      }
+      if (item == null) return;
+
+      _clipboardRequest++;
+      setState(() {
+        _isCropping = false;
+        _cropRect = null;
+        _selectedAnnotationId = null;
+        _history.insert(0, item);
+        _selectedItem = item;
+        final trimmed = _trimHistory();
+        _statusMessage =
+            '클립보드 이미지 붙여넣기 완료 (${item.resolutionLabel})'
+            '${trimmed ? ' · 보관 한도에 도달해 오래된 항목을 정리했습니다.' : ''}';
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = '클립보드 이미지 불러오기 실패: $e');
+      }
     }
   }
 
@@ -309,6 +441,9 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     setState(() {
       final last = current.annotations.removeLast();
       current.redoStack.add(last);
+      if (_selectedAnnotationId == last.id) {
+        _selectedAnnotationId = null;
+      }
       _statusMessage = '실행 취소됨 (${last.tool.label})';
     });
   }
@@ -320,6 +455,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     setState(() {
       final restored = current.redoStack.removeLast();
       current.annotations.add(restored);
+      _selectedAnnotationId = null;
       _statusMessage = '다시 실행됨 (${restored.tool.label})';
     });
   }
@@ -331,6 +467,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     setState(() {
       current.annotations.clear();
       current.redoStack.clear();
+      _selectedAnnotationId = null;
       _statusMessage = '모든 마크업 주석을 초기화했습니다.';
     });
   }
@@ -675,6 +812,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
     setState(() {
       _isCropping = false;
       _cropRect = null;
+      _selectedAnnotationId = null;
       final idx = _history.indexWhere((e) => e.id == item.id);
       _history.removeWhere((e) => e.id == item.id);
       if (_selectedItem?.id == item.id) {
@@ -787,6 +925,16 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _saveToFile,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true):
             _saveToFile,
+        const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
+            _openImageFile,
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+            _openImageFile,
+        const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+            _importFromClipboard,
+        const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+            _importFromClipboard,
+        const SingleActivator(LogicalKeyboardKey.delete): _handleDeleteKey,
+        const SingleActivator(LogicalKeyboardKey.backspace): _handleDeleteKey,
         const SingleActivator(LogicalKeyboardKey.escape): _cancelCrop,
         const SingleActivator(LogicalKeyboardKey.enter): _applyCrop,
       },
@@ -804,7 +952,12 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 canUndo: current != null && current.annotations.isNotEmpty,
                 canRedo: current != null && current.redoStack.isNotEmpty,
                 onTriggerCapture: _triggerCapture,
-                onSelectTool: (tool) => setState(() => _selectedTool = tool),
+                onSelectTool: (tool) => setState(() {
+                  _selectedTool = tool;
+                  if (tool != AnnotationTool.select) {
+                    _selectedAnnotationId = null;
+                  }
+                }),
                 onSelectColor: (color) =>
                     setState(() => _selectedColor = color),
                 onSelectStrokeWidth: (w) => setState(() => _strokeWidth = w),
@@ -831,6 +984,9 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                 onCopyForAgent: _copyForAgent,
                 isPinned: _isPinned,
                 onTogglePin: _togglePinMode,
+                onOpenImageFile: _openImageFile,
+                hasSelectedAnnotation: _selectedAnnotationId != null,
+                onDeleteSelectedAnnotation: _deleteSelectedAnnotation,
               ),
               Expanded(
                 child: Row(
@@ -843,6 +999,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                         setState(() {
                           _isCropping = false;
                           _cropRect = null;
+                          _selectedAnnotationId = null;
                           _selectedItem = item;
                         });
                       },
@@ -860,6 +1017,11 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
                                 selectedColor: _selectedColor,
                                 strokeWidth: _strokeWidth,
                                 onAddAnnotation: _addAnnotation,
+                                selectedAnnotationId: _selectedAnnotationId,
+                                onSelectAnnotation: (id) =>
+                                    setState(() => _selectedAnnotationId = id),
+                                onUpdateAnnotation: _updateAnnotation,
+                                onDeleteAnnotation: _deleteSelectedAnnotation,
                                 isCropping: _isCropping,
                                 cropRect: _cropRect,
                                 onCropRectChanged: (r) =>

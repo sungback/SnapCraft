@@ -30,6 +30,66 @@ class CaptureService {
     } catch (_) {}
   }
 
+  /// 외부 이미지 파일에서 CaptureItem 생성
+  Future<CaptureItem?> createFromFile(String sourcePath) async {
+    final sourceFile = File(sourcePath);
+    if (!await sourceFile.exists()) return null;
+    final bytes = await sourceFile.readAsBytes();
+    return createFromBytes(bytes, prefix: 'import');
+  }
+
+  /// 바이트 데이터(클립보드/파일)로부터 PNG 정규화된 CaptureItem 생성
+  Future<CaptureItem?> createFromBytes(
+    Uint8List bytes, {
+    String prefix = 'import',
+  }) async {
+    if (bytes.isEmpty) return null;
+
+    final codec = await ui.instantiateImageCodec(bytes);
+    late ui.FrameInfo frame;
+    try {
+      frame = await codec.getNextFrame();
+    } finally {
+      codec.dispose();
+    }
+
+    var imageDisposed = false;
+    try {
+      final pngData = await frame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      if (pngData == null) {
+        throw StateError('이미지 PNG 변환 실패');
+      }
+      final pngBytes = pngData.buffer.asUint8List();
+
+      final tempDir = await getTemporaryDirectory();
+      final capturesDir = Directory('${tempDir.path}/snap_craft_captures');
+      if (!await capturesDir.exists()) {
+        await capturesDir.create(recursive: true);
+      }
+
+      final timestamp = DateTime.now().microsecondsSinceEpoch;
+      final filePath = '${capturesDir.path}/snap_${prefix}_$timestamp.png';
+      await File(filePath).writeAsBytes(pngBytes, flush: true);
+
+      final item = CaptureItem(
+        id: '${prefix}_$timestamp',
+        filePath: filePath,
+        originalBytes: pngBytes,
+        decodedImage: frame.image,
+        capturedAt: DateTime.now(),
+        mode: CaptureMode.region,
+      );
+      imageDisposed = true;
+      return item;
+    } finally {
+      if (!imageDisposed) {
+        frame.image.dispose();
+      }
+    }
+  }
+
   /// 지정된 모드로 화면 캡쳐 실행
   Future<CaptureItem?> capture(
     CaptureMode mode, {

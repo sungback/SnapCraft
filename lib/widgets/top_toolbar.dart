@@ -39,6 +39,9 @@ class TopToolbar extends StatelessWidget {
   final ValueChanged<String>? onCopyForAgent;
   final bool isPinned;
   final VoidCallback? onTogglePin;
+  final VoidCallback? onOpenImageFile;
+  final bool hasSelectedAnnotation;
+  final VoidCallback? onDeleteSelectedAnnotation;
 
   const TopToolbar({
     super.key,
@@ -74,6 +77,9 @@ class TopToolbar extends StatelessWidget {
     this.onCopyForAgent,
     this.isPinned = false,
     this.onTogglePin,
+    this.onOpenImageFile,
+    this.hasSelectedAnnotation = false,
+    this.onDeleteSelectedAnnotation,
   });
 
   static const List<Color> paletteColors = [
@@ -131,6 +137,21 @@ class TopToolbar extends StatelessWidget {
                 onPressed: isCapturing
                     ? null
                     : () => onTriggerCapture(CaptureMode.window),
+              ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: '이미지 파일 열기 (Cmd/Ctrl + O)',
+                child: IconButton(
+                  onPressed: isCapturing ? null : onOpenImageFile,
+                  icon: const Icon(Icons.folder_open_rounded, size: 20),
+                  color: Colors.white70,
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFF282B36),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 6),
               Tooltip(
@@ -394,6 +415,10 @@ class TopToolbar extends StatelessWidget {
             child: Row(
               children: [
                 _buildToolChip(
+                  tool: AnnotationTool.select,
+                  icon: Icons.near_me_rounded,
+                ),
+                _buildToolChip(
                   tool: AnnotationTool.pen,
                   icon: Icons.edit_rounded,
                 ),
@@ -471,6 +496,14 @@ class TopToolbar extends StatelessWidget {
                   tooltip: '다시 실행 (Cmd/Ctrl + Shift + Z)',
                   icon: const Icon(Icons.redo_rounded, size: 19),
                 ),
+                if (onDeleteSelectedAnnotation != null)
+                  IconButton(
+                    onPressed: hasActiveCapture && hasSelectedAnnotation
+                        ? onDeleteSelectedAnnotation
+                        : null,
+                    tooltip: '선택한 주석 삭제 (Delete)',
+                    icon: const Icon(Icons.backspace_outlined, size: 18),
+                  ),
                 IconButton(
                   onPressed: hasActiveCapture && canUndo
                       ? onClearAnnotations

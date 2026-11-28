@@ -47,6 +47,8 @@ class ExportService {
     // 2. 일반 주석은 추가한 순서대로 렌더링합니다.
     for (final item in allItems) {
       switch (item.tool) {
+        case AnnotationTool.select:
+          break;
         case AnnotationTool.pen:
           _drawFreehand(canvas, item, isHighlighter: false);
           break;

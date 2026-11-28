@@ -2,6 +2,11 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.26
+- 캔버스 확대/축소(줌 컨트롤 및 `Cmd/Ctrl + 휠`), 줌 상태 팬 이동, 개별 주석 선택(`선택` 도구)·드래그 이동·`Delete` 삭제 기능 추가
+- OS 로그인 시 자동 실행(`--start-minimized` 트레이 조용한 시작) 옵션 추가 (`StartupService`)
+- 클립보드 이미지 붙여넣기(`Cmd/Ctrl + V`) 및 외부 이미지 파일 열기(`Cmd/Ctrl + O`) 기능 추가
+
 ## v1.0.25
 - 시스템 트레이 메뉴의 캡쳐 단축키 라벨이 하드코딩(`Cmd+Shift+1/2/3`)되던 문제를 수정하고 `HotkeyService`의 실제 단축키와 동기화
 - `tray_manager` deprecated `legacy.dart` 의존을 최신 `TrayIcon`/`Menu` 네이티브 API로 마이그레이션

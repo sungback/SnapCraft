@@ -3,6 +3,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 
 import '../services/hotkey_service.dart';
+import '../services/startup_service.dart';
 import '../services/tray_service.dart';
 
 class ShortcutSettingsDialog extends StatefulWidget {
@@ -154,6 +155,64 @@ class _ShortcutSettingsDialogState extends State<ShortcutSettingsDialog> {
                     onChanged: (val) async {
                       await TrayService.instance.setCloseToTray(val);
                       setState(() {});
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF252834),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF323646)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.power_settings_new_rounded,
+                    size: 20,
+                    color: Colors.white70,
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'OS 로그인 시 자동 실행',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          '컴퓨터 시작 시 트레이로 조용히 실행됩니다.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: StartupService.instance.isEnabled,
+                    activeThumbColor: const Color(0xFF60A5FA),
+                    onChanged: (val) async {
+                      try {
+                        await StartupService.instance.setEnabled(val);
+                        if (mounted) {
+                          setState(() => _errorMessage = null);
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          setState(() => _errorMessage = '$e');
+                        }
+                      }
                     },
                   ),
                 ],
