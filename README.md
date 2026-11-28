@@ -62,17 +62,27 @@
 lib/
 ├── main.dart                          # 앱 초기화 및 메인 워크스페이스 화면
 ├── models/
-│   ├── annotation.dart                # 6종 마크업 도구 및 주석 데이터 모델
+│   ├── annotation.dart                # 7종 마크업 도구 및 주석 데이터 모델
 │   └── capture_item.dart              # 캡쳐 이미지 메타데이터 및 Undo/Redo 히스토리
 ├── services/
+│   ├── capture_files.dart             # 캡쳐 임시 파일 보존 및 오래된 파일 정리
 │   ├── capture_service.dart           # 창 자동 숨김/복원 및 OS 네이티브 캡쳐 연동
 │   ├── export_service.dart            # 마크업 캔버스 렌더링, 멀티 포맷 클립보드, PNG 저장
+│   ├── export_settings_service.dart   # PNG 저장 폴더 및 자동 저장 설정 영구 저장
 │   ├── hotkey_service.dart            # 글로벌 단축키 등록 및 설정 저장
-│   └── update_service.dart            # GitHub Releases 기반 버전 확인 및 자동 설치
+│   ├── ocr_service.dart               # macOS Vision 기반 로컬 텍스트 추출(OCR)
+│   ├── tray_service.dart              # 시스템 트레이(메뉴바) 상주 및 빠른 메뉴
+│   ├── update_installer_macos.dart    # macOS 인앱 업데이트 설치기
+│   ├── update_installer_windows.dart  # Windows 인앱 업데이트 설치기
+│   ├── update_scripts.dart            # 업데이트 교체/복구 스크립트 생성
+│   ├── update_service.dart            # GitHub Releases 기반 버전 확인 및 자동 설치
+│   ├── windows_region_capture.dart    # Windows 영역 캡쳐 결과 대기 및 수신
+│   └── windows_update_process.dart    # Windows 업데이트 프로세스 실행기
 └── widgets/
     ├── annotation_canvas.dart         # 원본 해상도 좌표계 기반 인터랙티브 드로잉 캔버스
     ├── history_sidebar.dart           # 최근 캡쳐 썸네일 히스토리 사이드바
-    ├── shortcut_settings_dialog.dart  # 글로벌 단축키 변경 모달
+    ├── ocr_result_dialog.dart         # OCR 추출 결과 확인/편집/복사 다이얼로그
+    ├── shortcut_settings_dialog.dart  # 글로벌 단축키 및 트레이 설정 모달
     ├── top_toolbar.dart               # 캡쳐 모드 및 마크업 도구 상단 툴바
     └── update_dialog.dart             # 업데이트 확인/진행 다이얼로그
 ```

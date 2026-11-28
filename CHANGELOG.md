@@ -2,6 +2,11 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.25
+- 시스템 트레이 메뉴의 캡쳐 단축키 라벨이 하드코딩(`Cmd+Shift+1/2/3`)되던 문제를 수정하고 `HotkeyService`의 실제 단축키와 동기화
+- `tray_manager` deprecated `legacy.dart` 의존을 최신 `TrayIcon`/`Menu` 네이티브 API로 마이그레이션
+- `TASKS.md` 및 `README.md` 프로젝트 구조 문서를 최신 코드베이스 기준으로 정리
+
 ## v1.0.24
 - 캡쳐 직후 지정 폴더에 자동 저장(Auto-Save on Capture) 옵션 추가 (`PNG 저장 옵션` 메뉴 토글 및 폴더 미지정 시 선택 창 연동)
 - 자동 저장 실패 시에도 캡쳐 항목을 유지하고 상태바에 결과를 안내하도록 처리

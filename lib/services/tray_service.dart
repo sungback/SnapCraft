@@ -1,16 +1,16 @@
-// ignore_for_file: deprecated_member_use
-
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tray_manager/legacy.dart';
+import 'package:tray_manager/tray_manager.dart';
+
+import 'hotkey_service.dart';
 
 typedef ShowWindowCallback = Future<void> Function();
 typedef TriggerCaptureCallback = Future<void> Function(CaptureMode mode);
 
-class TrayService with TrayListener {
+class TrayService {
   TrayService._();
   static final TrayService instance = TrayService._();
 
@@ -20,6 +20,10 @@ class TrayService with TrayListener {
   bool _closeToTray = true;
   ShowWindowCallback? _onShowWindow;
   TriggerCaptureCallback? _onTriggerCapture;
+
+  TrayIcon? _trayIcon;
+  Menu? _menu;
+  List<MenuItem> _menuItems = [];
 
   bool get isInitialized => _initialized;
   bool get closeToTray => _closeToTray;
@@ -39,19 +43,29 @@ class TrayService with TrayListener {
     }
 
     try {
-      trayManager.addListener(this);
+      _trayIcon?.dispose();
+      final trayIcon = TrayIcon.create();
+      if (trayIcon == null) return;
+      _trayIcon = trayIcon;
 
       final iconPath = Platform.isWindows
           ? 'assets/images/tray_icon.ico'
           : 'assets/images/tray_icon.png';
 
-      await trayManager.setIcon(
-        iconPath,
-        isTemplate: Platform.isMacOS,
-      );
+      trayIcon.icon = ImageAsset.fromAsset(iconPath);
+      if (Platform.isMacOS) {
+        trayIcon.isIconTemplate = true;
+      }
+      trayIcon.setTooltip('SnapCraft - 화면 캡쳐 & 마크업');
+      trayIcon.addListener((event) {
+        if (event is TrayIconClickedEvent) {
+          handleIconClick();
+        }
+      });
+      trayIcon.setContextMenuTrigger(ContextMenuTrigger.rightClicked);
 
-      await trayManager.setToolTip('SnapCraft - 화면 캡쳐 & 마크업');
       await updateContextMenu();
+      trayIcon.setVisible(true);
       _initialized = true;
     } catch (e) {
       debugPrint('TrayService 초기화 실패 (테스트 또는 미지원 환경): $e');
@@ -77,57 +91,78 @@ class TrayService with TrayListener {
     }
   }
 
+  @visibleForTesting
+  Map<String, String> buildMenuLabels() {
+    String withShortcut(String base, CaptureMode mode) {
+      final shortcut = HotkeyService.instance.formatHotKey(mode);
+      return shortcut.isEmpty ? base : '$base ($shortcut)';
+    }
+
+    return {
+      'capture_screen': withShortcut('전체 화면 캡쳐', CaptureMode.screen),
+      'capture_region': withShortcut('영역 지정 캡쳐', CaptureMode.region),
+      'capture_window': withShortcut('창 선택 캡쳐', CaptureMode.window),
+      'show_window': 'SnapCraft 열기',
+      'quit': '종료 (Quit)',
+    };
+  }
+
   Future<void> updateContextMenu() async {
+    final trayIcon = _trayIcon;
+    if (trayIcon == null) return;
+
     try {
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: 'capture_screen',
-            label: Platform.isMacOS ? '전체 화면 캡쳐 (Cmd+Shift+1)' : '전체 화면 캡쳐 (Ctrl+Shift+1)',
-          ),
-          MenuItem(
-            key: 'capture_region',
-            label: Platform.isMacOS ? '영역 지정 캡쳐 (Cmd+Shift+2)' : '영역 지정 캡쳐 (Ctrl+Shift+2)',
-          ),
-          MenuItem(
-            key: 'capture_window',
-            label: Platform.isMacOS ? '창 캡쳐 (Cmd+Shift+3)' : '창 캡쳐 (Ctrl+Shift+3)',
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'show_window',
-            label: 'SnapCraft 열기',
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'quit',
-            label: '종료 (Quit)',
-          ),
-        ],
-      );
-      await trayManager.setContextMenu(menu);
+      final labels = buildMenuLabels();
+      final menu = Menu.create();
+      if (menu == null) return;
+
+      final items = <MenuItem>[];
+
+      void addActionItem(String key) {
+        final label = labels[key];
+        if (label == null) return;
+        final item = MenuItem.createWithLabelAndType(
+          label,
+          MenuItemType.normal,
+        );
+        if (item == null) return;
+        item.addListener((event) {
+          if (event is MenuItemClickedEvent) {
+            handleMenuAction(key);
+          }
+        });
+        items.add(item);
+        menu.addItem(item);
+      }
+
+      addActionItem('capture_screen');
+      addActionItem('capture_region');
+      addActionItem('capture_window');
+      menu.addSeparator();
+      addActionItem('show_window');
+      menu.addSeparator();
+      addActionItem('quit');
+
+      trayIcon.setContextMenu(menu);
+      _menu?.dispose();
+      for (final oldItem in _menuItems) {
+        oldItem.dispose();
+      }
+      _menu = menu;
+      _menuItems = items;
     } catch (e) {
       debugPrint('트레이 컨텍스트 메뉴 설정 실패: $e');
     }
   }
 
-  @override
-  void onTrayIconMouseDown() {
+  @visibleForTesting
+  void handleIconClick() {
     _onShowWindow?.call();
   }
 
-  @override
-  void onTrayIconRightMouseDown() {
-    try {
-      trayManager.popUpContextMenu();
-    } catch (e) {
-      debugPrint('트레이 메뉴 팝업 실패: $e');
-    }
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    switch (menuItem.key) {
+  @visibleForTesting
+  void handleMenuAction(String key) {
+    switch (key) {
       case 'capture_screen':
         _onTriggerCapture?.call(CaptureMode.screen);
         break;
@@ -147,11 +182,17 @@ class TrayService with TrayListener {
 
   void dispose() {
     try {
-      trayManager.removeListener(this);
-      trayManager.destroy();
+      _trayIcon?.dispose();
+      _menu?.dispose();
+      for (final item in _menuItems) {
+        item.dispose();
+      }
     } catch (e) {
       debugPrint('TrayService 해제 실패: $e');
     }
+    _trayIcon = null;
+    _menu = null;
+    _menuItems = [];
     _initialized = false;
   }
 }

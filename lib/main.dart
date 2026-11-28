@@ -695,6 +695,7 @@ class _SnapCraftHomeScreenState extends State<SnapCraftHomeScreen>
       context: context,
       builder: (_) => ShortcutSettingsDialog(
         onShortcutsUpdated: () {
+          unawaited(TrayService.instance.updateContextMenu());
           setState(() {
             _statusMessage = '글로벌 단축키 설정이 업데이트되었습니다.';
           });
