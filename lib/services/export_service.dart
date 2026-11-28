@@ -16,7 +16,7 @@ class ExportService {
   ExportService._();
   static final ExportService instance = ExportService._();
 
-  static const MethodChannel _macClipboardChannel = MethodChannel(
+  static const MethodChannel _clipboardChannel = MethodChannel(
     'snap_craft/clipboard',
   );
 
@@ -399,8 +399,8 @@ class ExportService {
   Future<void> cleanStaleFiles() async {
     try {
       String? clipboardPath;
-      if (Platform.isMacOS) {
-        clipboardPath = await _macClipboardChannel.invokeMethod<String>(
+      if (Platform.isMacOS || Platform.isWindows) {
+        clipboardPath = await _clipboardChannel.invokeMethod<String>(
           'currentFilePath',
         );
       }
@@ -452,7 +452,7 @@ class ExportService {
       Future<bool> writeLatest() async {
         if (previousWrite != null) await previousWrite;
         if (!isCurrent()) return false;
-        if (Platform.isMacOS) {
+        if (Platform.isMacOS || Platform.isWindows) {
           final temp = await getTemporaryDirectory();
           final folder = Directory('${temp.path}/snap_craft_clipboard');
           await folder.create(recursive: true);
@@ -465,11 +465,15 @@ class ExportService {
             await clipboardFile.delete();
             return false;
           }
-          final ok = await _macClipboardChannel.invokeMethod<bool>(
-            'copyImageAndFile',
-            {'bytes': pngBytes, 'path': clipboardFile.path},
-          );
-          return ok ?? true;
+          try {
+            final ok = await _clipboardChannel.invokeMethod<bool>(
+              'copyImageAndFile',
+              {'bytes': pngBytes, 'path': clipboardFile.path},
+            );
+            return ok ?? true;
+          } on MissingPluginException {
+            // Fallback to Pasteboard when running without native channel handler.
+          }
         }
 
         await Pasteboard.writeImage(pngBytes);

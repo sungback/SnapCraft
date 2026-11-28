@@ -3,12 +3,16 @@
 #include <atlimage.h>
 #include <dwmapi.h>
 #include <windows.h>
+#include <ole2.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #include <algorithm>
+#include <cstring>
 #include <cwctype>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -31,6 +35,215 @@ std::wstring Utf8ToWide(const std::string& utf8) {
   MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
                       &result[0], size_needed);
   return result;
+}
+
+std::string WideToUtf8(const std::wstring& wide) {
+  if (wide.empty()) return std::string();
+  int size_needed = WideCharToMultiByte(
+      CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0,
+      nullptr, nullptr);
+  if (size_needed <= 0) return std::string();
+  std::string result(size_needed, 0);
+  WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()),
+                      &result[0], size_needed, nullptr, nullptr);
+  return result;
+}
+
+std::optional<std::string> GetClipboardFirstFilePath() {
+  if (!IsClipboardFormatAvailable(CF_HDROP)) {
+    return std::nullopt;
+  }
+  if (!OpenClipboard(nullptr)) {
+    return std::nullopt;
+  }
+  std::optional<std::string> result;
+  HANDLE hdrop = GetClipboardData(CF_HDROP);
+  if (hdrop != nullptr) {
+    UINT count = DragQueryFileW(reinterpret_cast<HDROP>(hdrop), 0xFFFFFFFF,
+                                nullptr, 0);
+    if (count > 0) {
+      UINT len = DragQueryFileW(reinterpret_cast<HDROP>(hdrop), 0, nullptr, 0);
+      if (len > 0) {
+        std::wstring buf(len + 1, L'\0');
+        DragQueryFileW(reinterpret_cast<HDROP>(hdrop), 0, &buf[0], len + 1);
+        buf.resize(len);
+        result = WideToUtf8(buf);
+      }
+    }
+  }
+  CloseClipboard();
+  return result;
+}
+
+HGLOBAL CreateDibFromPngBytes(const std::vector<uint8_t>& png_bytes) {
+  if (png_bytes.empty()) return nullptr;
+
+  HGLOBAL h_png = GlobalAlloc(GMEM_MOVEABLE, png_bytes.size());
+  if (!h_png) return nullptr;
+  void* png_ptr = GlobalLock(h_png);
+  if (!png_ptr) {
+    GlobalFree(h_png);
+    return nullptr;
+  }
+  std::memcpy(png_ptr, png_bytes.data(), png_bytes.size());
+  GlobalUnlock(h_png);
+
+  IStream* stream = nullptr;
+  if (FAILED(CreateStreamOnHGlobal(h_png, TRUE, &stream)) || !stream) {
+    GlobalFree(h_png);
+    return nullptr;
+  }
+
+  CImage image;
+  HRESULT hr = image.Load(stream);
+  stream->Release();
+  if (FAILED(hr) || image.IsNull()) {
+    return nullptr;
+  }
+
+  const int w = image.GetWidth();
+  const int h = image.GetHeight();
+  if (w <= 0 || h <= 0) {
+    return nullptr;
+  }
+
+  const size_t pixel_bytes =
+      static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+  HGLOBAL h_dib =
+      GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixel_bytes);
+  if (!h_dib) return nullptr;
+
+  auto* dib_ptr = static_cast<uint8_t*>(GlobalLock(h_dib));
+  if (!dib_ptr) {
+    GlobalFree(h_dib);
+    return nullptr;
+  }
+
+  BITMAPINFO bi{};
+  bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bi.bmiHeader.biWidth = w;
+  bi.bmiHeader.biHeight = h;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  bi.bmiHeader.biSizeImage = static_cast<DWORD>(pixel_bytes);
+
+  std::memcpy(dib_ptr, &bi.bmiHeader, sizeof(BITMAPINFOHEADER));
+  HDC hdc = GetDC(nullptr);
+  int rows = GetDIBits(hdc, static_cast<HBITMAP>(image), 0,
+                       static_cast<UINT>(h), dib_ptr + sizeof(BITMAPINFOHEADER),
+                       &bi, DIB_RGB_COLORS);
+  ReleaseDC(nullptr, hdc);
+  GlobalUnlock(h_dib);
+
+  if (rows == 0) {
+    GlobalFree(h_dib);
+    return nullptr;
+  }
+  return h_dib;
+}
+
+bool CopyPngAndFileToClipboard(HWND owner,
+                               const std::vector<uint8_t>& png_bytes,
+                               const std::wstring& file_path) {
+  HGLOBAL h_dib = CreateDibFromPngBytes(png_bytes);
+
+  HGLOBAL h_png = nullptr;
+  if (!png_bytes.empty()) {
+    h_png = GlobalAlloc(GMEM_MOVEABLE, png_bytes.size());
+    if (h_png) {
+      void* dst = GlobalLock(h_png);
+      if (dst) {
+        std::memcpy(dst, png_bytes.data(), png_bytes.size());
+        GlobalUnlock(h_png);
+      } else {
+        GlobalFree(h_png);
+        h_png = nullptr;
+      }
+    }
+  }
+
+  HGLOBAL h_drop = nullptr;
+  if (!file_path.empty()) {
+    const size_t drop_size =
+        sizeof(DROPFILES) + (file_path.size() + 2) * sizeof(wchar_t);
+    h_drop = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, drop_size);
+    if (h_drop) {
+      auto* df = static_cast<DROPFILES*>(GlobalLock(h_drop));
+      if (df) {
+        df->pFiles = sizeof(DROPFILES);
+        df->fWide = TRUE;
+        wchar_t* dst = reinterpret_cast<wchar_t*>(
+            reinterpret_cast<uint8_t*>(df) + sizeof(DROPFILES));
+        std::memcpy(dst, file_path.c_str(), file_path.size() * sizeof(wchar_t));
+        GlobalUnlock(h_drop);
+      } else {
+        GlobalFree(h_drop);
+        h_drop = nullptr;
+      }
+    }
+  }
+
+  HGLOBAL h_text = nullptr;
+  if (!file_path.empty()) {
+    const size_t text_bytes = (file_path.size() + 1) * sizeof(wchar_t);
+    h_text = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, text_bytes);
+    if (h_text) {
+      void* dst = GlobalLock(h_text);
+      if (dst) {
+        std::memcpy(dst, file_path.c_str(), file_path.size() * sizeof(wchar_t));
+        GlobalUnlock(h_text);
+      } else {
+        GlobalFree(h_text);
+        h_text = nullptr;
+      }
+    }
+  }
+
+  if (!OpenClipboard(owner)) {
+    if (h_dib) GlobalFree(h_dib);
+    if (h_png) GlobalFree(h_png);
+    if (h_drop) GlobalFree(h_drop);
+    if (h_text) GlobalFree(h_text);
+    return false;
+  }
+
+  EmptyClipboard();
+  bool any_image = false;
+
+  const UINT png_format = RegisterClipboardFormatW(L"PNG");
+  if (png_format != 0 && h_png) {
+    if (SetClipboardData(png_format, h_png) != nullptr) {
+      any_image = true;
+    } else {
+      GlobalFree(h_png);
+    }
+  } else if (h_png) {
+    GlobalFree(h_png);
+  }
+
+  if (h_dib) {
+    if (SetClipboardData(CF_DIB, h_dib) != nullptr) {
+      any_image = true;
+    } else {
+      GlobalFree(h_dib);
+    }
+  }
+
+  if (h_drop) {
+    if (SetClipboardData(CF_HDROP, h_drop) == nullptr) {
+      GlobalFree(h_drop);
+    }
+  }
+
+  if (h_text) {
+    if (SetClipboardData(CF_UNICODETEXT, h_text) == nullptr) {
+      GlobalFree(h_text);
+    }
+  }
+
+  CloseClipboard();
+  return any_image;
 }
 
 bool GetVisibleWindowBounds(HWND hwnd, RECT* out_rect) {
@@ -457,6 +670,50 @@ bool FlutterWindow::OnCreate() {
             return;
           }
           bool ok = CaptureSelectedWindowToPng(selected, path_wide);
+          result->Success(flutter::EncodableValue(ok));
+        } else {
+          result->NotImplemented();
+        }
+      });
+
+  clipboard_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "snap_craft/clipboard",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  clipboard_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() == "currentFilePath") {
+          auto path = GetClipboardFirstFilePath();
+          if (path.has_value()) {
+            result->Success(flutter::EncodableValue(*path));
+          } else {
+            result->Success();
+          }
+        } else if (call.method_name() == "copyImageAndFile") {
+          const auto* args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (!args) {
+            result->Error("INVALID_ARGS", "Missing map arguments");
+            return;
+          }
+          auto bytes_it = args->find(flutter::EncodableValue("bytes"));
+          auto path_it = args->find(flutter::EncodableValue("path"));
+          if (bytes_it == args->end() ||
+              path_it == args->end() ||
+              !std::holds_alternative<std::vector<uint8_t>>(bytes_it->second) ||
+              !std::holds_alternative<std::string>(path_it->second)) {
+            result->Error("INVALID_ARGS", "Missing bytes or path");
+            return;
+          }
+          const auto& png_bytes =
+              std::get<std::vector<uint8_t>>(bytes_it->second);
+          const auto& path_utf8 = std::get<std::string>(path_it->second);
+          const bool ok = CopyPngAndFileToClipboard(
+              GetHandle(), png_bytes, Utf8ToWide(path_utf8));
           result->Success(flutter::EncodableValue(ok));
         } else {
           result->NotImplemented();

@@ -2,6 +2,10 @@
 
 버전별 주요 변경 사항. 진행 중/예정 작업은 `TASKS.md`를 참조하세요.
 
+## v1.0.27
+- Windows 로컬 OCR 지원 추가: Windows 10/11 내장 WinRT `Windows.Media.Ocr` 엔진 연동 (`OcrService`)
+- Windows 멀티 포맷 클립보드 채널(`snap_craft/clipboard`) 구현: `PNG`, `CF_DIB`, `CF_HDROP`, `CF_UNICODETEXT` 동시 기록으로 GUI 앱 이미지 붙여넣기와 터미널 AI 에이전트 파일 경로 붙여넣기 모두 지원
+
 ## v1.0.26
 - 캔버스 확대/축소(줌 컨트롤 및 `Cmd/Ctrl + 휠`), 줌 상태 팬 이동, 개별 주석 선택(`선택` 도구)·드래그 이동·`Delete` 삭제 기능 추가
 - OS 로그인 시 자동 실행(`--start-minimized` 트레이 조용한 시작) 옵션 추가 (`StartupService`)
